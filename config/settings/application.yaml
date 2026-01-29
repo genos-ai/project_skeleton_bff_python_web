@@ -1,0 +1,33 @@
+# =============================================================================
+# Application Configuration
+# =============================================================================
+# Available options:
+#   name            - Application name (string)
+#   version         - Application version (string, semver)
+#   description     - Application description (string)
+#   api_prefix      - API route prefix (string, default: /api)
+#   docs_enabled    - Enable OpenAPI docs (boolean, default: true)
+#   pagination      - Pagination settings (object)
+#     default_limit - Default page size (integer, default: 50)
+#     max_limit     - Maximum page size (integer, default: 100)
+#   timeouts        - Timeout settings in seconds (object)
+#     database      - Database query timeout (integer, default: 10)
+#     external_api  - External API call timeout (integer, default: 30)
+#     background    - Background task timeout (integer, default: 120)
+# =============================================================================
+
+name: "BFF Application"
+version: "0.1.0"
+description: "Backend for Frontend Python Web Application"
+
+api_prefix: "/api"
+docs_enabled: true
+
+pagination:
+  default_limit: 50
+  max_limit: 100
+
+timeouts:
+  database: 10
+  external_api: 30
+  background: 120

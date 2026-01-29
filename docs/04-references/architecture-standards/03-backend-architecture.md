@@ -1,0 +1,445 @@
+# 03 - Backend Architecture
+
+*Version: 1.0.0*
+*Author: Architecture Team*
+*Created: 2025-01-27*
+
+## Changelog
+
+- 1.0.0 (2025-01-27): Initial generic backend architecture standard
+
+---
+
+## Framework
+
+### Standard: FastAPI
+
+All backend services use FastAPI as the web framework.
+
+Rationale:
+- Async-native for I/O-bound operations (database, external APIs)
+- Automatic OpenAPI documentation generation
+- Pydantic integration for request/response validation
+- Extensive AI training data for code assistance
+- Strong typing support with Python type hints
+
+### Python Version
+
+Minimum: Python 3.12
+
+All projects target the latest stable Python release at project inception. Upgrades occur during major version releases.
+
+---
+
+## Project Structure
+
+All backend projects follow this directory structure:
+
+```
+project/
+├── config/
+│   ├── .env
+│   ├── .env.example
+│   └── settings/
+│       └── *.yaml
+├── modules/
+│   └── backend/
+│       ├── api/
+│       │   └── v1/
+│       │       └── endpoints/
+│       ├── core/
+│       ├── models/
+│       ├── repositories/
+│       ├── schemas/
+│       ├── services/
+│       └── main.py
+├── tests/
+├── logs/
+├── requirements.txt
+└── .project_root
+```
+
+### Directory Purposes
+
+| Directory | Purpose |
+|-----------|---------|
+| config/ | Environment variables and YAML configuration |
+| modules/backend/api/ | HTTP endpoint handlers, versioned |
+| modules/backend/core/ | Shared utilities, configuration loading, middleware |
+| modules/backend/models/ | Database models (SQLAlchemy) |
+| modules/backend/repositories/ | Data access layer, queries |
+| modules/backend/schemas/ | Pydantic models for API request/response |
+| modules/backend/services/ | Business logic, orchestration |
+| tests/ | All test files |
+| logs/ | Application logs |
+
+---
+
+## Service Layer Pattern
+
+### Responsibilities
+
+Services contain all business logic. They:
+- Validate business rules
+- Orchestrate multi-step operations
+- Call repositories for data access
+- Call external services
+- Emit events for async processing
+
+Services do not:
+- Handle HTTP concerns (status codes, headers)
+- Access the database directly (use repositories)
+- Know about request/response schemas
+
+### Naming Convention
+
+Services are named by domain: `UserService`, `OrderService`, `ProjectService`.
+
+One service per domain concept. Services may call other services for cross-domain operations.
+
+---
+
+## Repository Layer Pattern
+
+### Responsibilities
+
+Repositories handle all database operations. They:
+- Execute queries
+- Handle database-specific concerns (transactions, connections)
+- Map database results to domain models
+
+Repositories do not:
+- Contain business logic
+- Call external services
+- Validate business rules
+
+### Naming Convention
+
+Repositories are named by entity: `UserRepository`, `OrderRepository`, `ProjectRepository`.
+
+One repository per database table or aggregate root.
+
+---
+
+## Async Patterns
+
+### Parallel Calls with TaskGroup
+
+Use `asyncio.TaskGroup` for parallel operations where all must succeed:
+
+```python
+import asyncio
+
+async def get_dashboard(user_id: UUID) -> Dashboard:
+    async with asyncio.timeout(10):  # Total timeout
+        async with asyncio.TaskGroup() as tg:
+            user_task = tg.create_task(user_api.get_user(user_id))
+            projects_task = tg.create_task(project_api.get_projects(user_id))
+    
+    return Dashboard(
+        user=user_task.result(),
+        projects=projects_task.result()
+    )
+```
+
+If any task fails, all others are automatically cancelled.
+
+### TaskGroup vs gather()
+
+| Pattern | Use When |
+|---------|----------|
+| `asyncio.TaskGroup` | All tasks must succeed; cancel others on first failure |
+| `asyncio.gather(return_exceptions=True)` | Best-effort; continue even if some fail |
+
+### Timeout Enforcement
+
+All external calls must have timeouts:
+
+```python
+async def call_external_service(request: Request) -> Response:
+    try:
+        async with asyncio.timeout(30):
+            return await external_client.call(request)
+    except asyncio.TimeoutError:
+        logger.warning("External call timed out")
+        raise ExternalServiceError("Service did not respond in time")
+```
+
+### Timeout Guidelines
+
+| Operation | Timeout |
+|-----------|---------|
+| Database query | 10 seconds |
+| Internal API call | 10 seconds |
+| External API call | 30 seconds |
+| File operations | 30 seconds |
+| Batch processing | 120 seconds |
+
+Adjust based on known operation characteristics.
+
+---
+
+## API Design
+
+### Versioning
+
+All APIs are versioned with URL prefix: `/api/v1/`, `/api/v2/`.
+
+Breaking changes require version increment. Non-breaking additions can occur within a version.
+
+### Response Format
+
+All API responses use consistent envelope:
+
+```json
+{
+  "success": true,
+  "data": {},
+  "error": null,
+  "metadata": {
+    "timestamp": "2025-01-27T12:00:00Z",
+    "request_id": "uuid"
+  }
+}
+```
+
+Error responses:
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable description",
+    "details": {}
+  },
+  "metadata": {
+    "timestamp": "2025-01-27T12:00:00Z",
+    "request_id": "uuid"
+  }
+}
+```
+
+### HTTP Methods
+
+| Method | Purpose | Idempotent |
+|--------|---------|------------|
+| GET | Retrieve resource(s) | Yes |
+| POST | Create resource or trigger action | No* |
+| PUT | Replace resource entirely | Yes |
+| PATCH | Partial update | Yes |
+| DELETE | Remove resource | Yes |
+
+*POST operations that modify state must accept idempotency keys.
+
+### Status Codes
+
+| Code | Usage |
+|------|-------|
+| 200 | Successful GET, PUT, PATCH, DELETE |
+| 201 | Successful POST creating resource |
+| 204 | Successful operation with no response body |
+| 400 | Invalid request (validation failure) |
+| 401 | Authentication required |
+| 403 | Authenticated but not authorized |
+| 404 | Resource not found |
+| 409 | Conflict (duplicate, version mismatch) |
+| 422 | Semantically invalid (business rule violation) |
+| 429 | Rate limit exceeded |
+| 500 | Server error |
+
+### Pagination
+
+All list endpoints support pagination:
+- `limit` - Maximum items to return (default: 50, max: 100)
+- `cursor` - Opaque cursor for next page
+
+Cursor-based pagination is mandatory. Offset-based pagination is forbidden (performance degrades at scale).
+
+### Cursor Implementation
+
+Use keyset pagination with base64-encoded cursor containing the last record's sort key.
+
+**Why not offset?**
+```sql
+-- Offset: Slow at page 100 (must skip 5000 rows)
+SELECT * FROM items LIMIT 50 OFFSET 5000;
+
+-- Cursor: Fast at any depth (uses index)
+SELECT * FROM items WHERE created_at < '2025-01-27T10:30:00' LIMIT 50;
+```
+
+**Cursor encoding:**
+```python
+import base64
+from datetime import datetime
+
+def encode_cursor(last_item) -> str:
+    """Encode cursor from last item in results."""
+    value = f"{last_item.created_at.isoformat()}:{last_item.id}"
+    return base64.urlsafe_b64encode(value.encode()).decode()
+
+def decode_cursor(cursor: str) -> tuple[datetime, str]:
+    """Decode cursor to (timestamp, id) tuple."""
+    value = base64.urlsafe_b64decode(cursor.encode()).decode()
+    timestamp_str, item_id = value.rsplit(":", 1)
+    return datetime.fromisoformat(timestamp_str), item_id
+```
+
+**Query pattern:**
+```sql
+-- First page (no cursor)
+SELECT * FROM items ORDER BY created_at DESC, id DESC LIMIT 50;
+
+-- Subsequent pages (with cursor)
+SELECT * FROM items 
+WHERE (created_at, id) < (:cursor_timestamp, :cursor_id)
+ORDER BY created_at DESC, id DESC 
+LIMIT 50;
+```
+
+**Rules:**
+- Cursor is opaque to clients (they never parse it)
+- Always include a tiebreaker column (usually `id`)
+- Sort order must be deterministic
+- Cursor encodes position, not page number
+
+---
+
+## Background Tasks
+
+### Standard: Taskiq with Redis
+
+Background tasks use Taskiq with Redis Streams.
+
+Rationale:
+- Async-native (matches FastAPI)
+- Excellent performance
+- Single system for both triggered and scheduled tasks
+- Full type hints and dependency injection support
+
+### Background Tasks (API-Triggered)
+
+```python
+from tasks.broker import broker
+
+@broker.task
+async def process_data(item_id: str) -> dict:
+    """Process data asynchronously."""
+    result = await heavy_processing(item_id)
+    return {"status": "completed", "item_id": item_id}
+
+# In API endpoint
+@router.post("/items/{item_id}/process")
+async def trigger_processing(item_id: str):
+    task = await process_data.kiq(item_id)
+    return {"task_id": task.task_id}
+```
+
+### Scheduled Tasks
+
+```python
+from taskiq import TaskiqScheduler
+from tasks.broker import broker
+
+scheduler = TaskiqScheduler(broker=broker)
+
+# Daily at 6 AM UTC
+@scheduler.cron("0 6 * * *")
+@broker.task
+async def daily_cleanup():
+    await cleanup_old_records(days=30)
+
+# Every 15 minutes
+@scheduler.cron("*/15 * * * *")
+@broker.task
+async def periodic_sync():
+    await sync_external_data()
+```
+
+### Task Categories
+
+| Category | Example | Retry Policy |
+|----------|---------|--------------|
+| Critical | Payment processing | 3 retries, exponential backoff |
+| Standard | Report generation | 5 retries, exponential backoff |
+| Scheduled | Data cleanup | No retry, runs on next schedule |
+| Batch | Bulk operations | No retry, manual intervention |
+
+### Idempotency
+
+All tasks must be idempotent:
+
+```python
+@broker.task
+async def process_payment(payment_id: str, idempotency_key: str):
+    if await already_processed(idempotency_key):
+        return {"status": "already_processed"}
+    
+    result = await execute_payment(payment_id)
+    await mark_processed(idempotency_key)
+    return result
+```
+
+---
+
+## Configuration Management
+
+### Environment Variables
+
+Secrets and environment-specific values come from environment variables:
+- Database credentials
+- API keys
+- JWT secrets
+- External service URLs
+
+### YAML Configuration
+
+Application settings come from YAML files:
+- Feature flags
+- Rate limits
+- Timeouts
+- Business rules
+
+### Loading Order
+
+1. Load YAML configuration files
+2. Override with environment variables where specified
+3. Validate all required configuration present
+4. Fail startup if configuration invalid
+
+---
+
+## Error Handling
+
+### Exception Hierarchy
+
+Define project-specific exceptions:
+- `ApplicationError` - Base for all application errors
+- `ValidationError` - Invalid input
+- `NotFoundError` - Resource does not exist
+- `AuthorizationError` - Not permitted
+- `ConflictError` - State conflict
+- `ExternalServiceError` - Third-party failure
+
+### Error Propagation
+
+- Repositories raise database-specific errors
+- Services catch and translate to application errors
+- API layer catches and translates to HTTP responses
+- Unhandled exceptions return 500 with error ID for debugging
+
+---
+
+## Health Checks
+
+All services expose health endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| /health | Basic liveness (returns 200 if process running) |
+| /health/ready | Readiness (database connected, dependencies available) |
+| /health/detailed | Component-by-component status (authenticated) |
+
+Health checks do not perform expensive operations. Database checks use simple queries, not full scans.

@@ -1,0 +1,38 @@
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+# Available options:
+#   level           - Default log level (string: DEBUG|INFO|WARNING|ERROR|CRITICAL)
+#   format          - Output format (string: json|console)
+#   include_timestamp - Include timestamp in logs (boolean, default: true)
+#   include_caller  - Include caller info in logs (boolean, default: true)
+#   processors      - Log processors to enable (list)
+#   handlers        - Log output handlers (object)
+#     console       - Console output settings (object)
+#       enabled     - Enable console output (boolean, default: true)
+#     file          - File output settings (object)
+#       enabled     - Enable file output (boolean, default: true)
+#       path        - Log file path (string, default: logs/app.log)
+#       max_bytes   - Max file size before rotation (integer, default: 10485760)
+#       backup_count - Number of backup files to keep (integer, default: 5)
+# =============================================================================
+
+level: "INFO"
+format: "json"
+include_timestamp: true
+include_caller: true
+
+processors:
+  - add_log_level
+  - add_logger_name
+  - timestamp
+  - format_exc_info
+
+handlers:
+  console:
+    enabled: true
+  file:
+    enabled: true
+    path: "logs/app.log"
+    max_bytes: 10485760
+    backup_count: 5

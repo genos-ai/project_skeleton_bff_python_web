@@ -1,0 +1,18 @@
+# =============================================================================
+# Database Configuration
+# =============================================================================
+# Available options:
+#   pool_size       - Connection pool size (integer, default: 5)
+#   max_overflow    - Max connections above pool_size (integer, default: 10)
+#   pool_timeout    - Seconds to wait for connection (integer, default: 30)
+#   pool_recycle    - Seconds before connection recycled (integer, default: 1800)
+#   echo            - Log SQL statements (boolean, default: false)
+#   echo_pool       - Log connection pool events (boolean, default: false)
+# =============================================================================
+
+pool_size: 5
+max_overflow: 10
+pool_timeout: 30
+pool_recycle: 1800
+echo: false
+echo_pool: false

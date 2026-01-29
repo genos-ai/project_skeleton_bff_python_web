@@ -1,0 +1,28 @@
+# =============================================================================
+# Feature Flags Configuration
+# =============================================================================
+# Available options:
+#   Feature flags control application behavior without code changes.
+#   Each flag should be a boolean (true/false).
+#
+#   Naming convention: lowercase_with_underscores
+#   
+#   Categories:
+#     auth_*        - Authentication features
+#     api_*         - API behavior features
+#     ui_*          - Frontend features
+#     experimental_* - Experimental features (use with caution)
+# =============================================================================
+
+# Authentication features
+auth_require_email_verification: false
+auth_allow_api_key_creation: true
+auth_rate_limit_enabled: true
+
+# API features
+api_detailed_errors: false
+api_request_logging: true
+
+# Experimental features (disabled by default)
+experimental_websocket_enabled: false
+experimental_background_tasks_enabled: true

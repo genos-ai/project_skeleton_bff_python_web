@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Application Entry Script.
+Example Entry Script.
 
-Main entry point for the BFF application. All functionality is accessible
-through command-line options.
+Example entry point demonstrating CLI patterns, logging, and configuration.
+All functionality is accessible through command-line options.
 
 Usage:
-    python run.py --help
-    python run.py --action server --verbose
-    python run.py --action health --debug
-    python run.py --action config
-    python run.py --action test --test-type unit
+    python example.py --help
+    python example.py --action server --verbose
+    python example.py --action health --debug
+    python example.py --action config
+    python example.py --action test --test-type unit
 """
 
 import subprocess
@@ -100,19 +100,19 @@ def main(
     Examples:
 
         # Start development server
-        python run.py --action server --reload --verbose
+        python example.py --action server --reload --verbose
 
         # Check application health
-        python run.py --action health --debug
+        python example.py --action health --debug
 
         # View loaded configuration
-        python run.py --action config
+        python example.py --action config
 
         # Run unit tests with coverage
-        python run.py --action test --test-type unit --coverage
+        python example.py --action test --test-type unit --coverage
 
         # Show application info
-        python run.py --action info
+        python example.py --action info
     """
     # Validate project root
     validate_project_root()
@@ -373,9 +373,9 @@ def show_info(logger) -> None:
     click.echo("  --debug, -d       Enable DEBUG level logging")
     click.echo()
     click.echo("Examples:")
-    click.echo("  python run.py --action server --reload --verbose")
-    click.echo("  python run.py --action health --debug")
-    click.echo("  python run.py --action test --test-type unit --coverage")
+    click.echo("  python example.py --action server --reload --verbose")
+    click.echo("  python example.py --action health --debug")
+    click.echo("  python example.py --action test --test-type unit --coverage")
 
     logger.debug("Info displayed")
 

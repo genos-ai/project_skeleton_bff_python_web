@@ -1,5 +1,5 @@
 """
-Unit Tests for run.py Entry Script.
+Unit Tests for example.py Entry Script.
 
 Tests individual functions with mocked dependencies.
 """
@@ -13,7 +13,7 @@ from click.testing import CliRunner
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from run import main, validate_project_root
+from example import main, validate_project_root
 
 
 class TestValidateProjectRoot:
@@ -26,7 +26,7 @@ class TestValidateProjectRoot:
         marker.touch()
 
         # Act & Assert
-        with patch("run.PROJECT_ROOT", tmp_path):
+        with patch("example.PROJECT_ROOT", tmp_path):
             result = validate_project_root()
             assert result == tmp_path
 
@@ -35,7 +35,7 @@ class TestValidateProjectRoot:
         # Arrange - tmp_path has no .project_root
 
         # Act & Assert
-        with patch("run.PROJECT_ROOT", tmp_path):
+        with patch("example.PROJECT_ROOT", tmp_path):
             with pytest.raises(SystemExit) as exc_info:
                 validate_project_root()
             assert exc_info.value.code == 1
@@ -74,8 +74,8 @@ class TestMainCLI:
     def test_verbose_flag_sets_info_logging(self, runner):
         """Should configure INFO level logging with --verbose."""
         # Arrange
-        with patch("run.setup_logging") as mock_setup:
-            with patch("run.validate_project_root"):
+        with patch("example.setup_logging") as mock_setup:
+            with patch("example.validate_project_root"):
                 # Act
                 runner.invoke(main, ["--action", "info", "--verbose"])
 
@@ -89,8 +89,8 @@ class TestMainCLI:
     def test_debug_flag_sets_debug_logging(self, runner):
         """Should configure DEBUG level logging with --debug."""
         # Arrange
-        with patch("run.setup_logging") as mock_setup:
-            with patch("run.validate_project_root"):
+        with patch("example.setup_logging") as mock_setup:
+            with patch("example.validate_project_root"):
                 # Act
                 runner.invoke(main, ["--action", "info", "--debug"])
 
@@ -184,7 +184,7 @@ class TestActionBehavior:
         result = runner.invoke(main, ["--action", "info"])
 
         # Assert
-        assert "python run.py" in result.output
+        assert "python example.py" in result.output
         assert "Examples:" in result.output
 
     def test_config_shows_all_sections(self, runner):

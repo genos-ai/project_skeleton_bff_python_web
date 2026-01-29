@@ -1,11 +1,12 @@
 # 05 - Data Layer (Optional Module)
 
-*Version: 1.0.0*
+*Version: 1.1.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 1.1.0 (2025-01-29): Added file-based data storage section (data/ directory)
 - 1.0.0 (2025-01-27): Initial generic data layer standard
 
 ---
@@ -178,6 +179,107 @@ Storage: Redis
 
 TTL required: All ephemeral data must have expiration.
 
+### File-Based Data
+
+Definition: Large datasets stored as files, not in database.
+
+Examples: Historical market data, training datasets, bulk exports.
+
+Storage: `data/` directory in project root.
+
+Access pattern: Direct file I/O or DuckDB for queries.
+
+See **16-project-template.md** for directory structure details.
+
+---
+
+## File-Based Data Storage
+
+For projects handling large datasets (trading data, ML training sets, analytics), use the `data/` directory structure.
+
+### Directory Structure
+
+```
+data/
+├── raw/          # Original source data (downloads, API exports)
+├── processed/    # Cleaned/transformed data (pipeline outputs)
+├── external/     # Third-party reference data
+├── cache/        # Temporary processing files
+└── samples/      # Small test datasets (git-tracked)
+```
+
+### When to Use File Storage vs Database
+
+| Use Case | Storage |
+|----------|---------|
+| Real-time queries | PostgreSQL/TimescaleDB |
+| Historical analysis | Parquet files + DuckDB |
+| ML training data | Parquet files |
+| Reference lookups | PostgreSQL or JSON files |
+| Temporary processing | `data/cache/` |
+| Test fixtures | `data/samples/` |
+
+### File Formats
+
+| Format | Best For | Compression |
+|--------|----------|-------------|
+| Parquet | Time series, columnar data | Built-in (snappy/zstd) |
+| CSV | Small datasets, human-readable | None |
+| JSON | Configuration, metadata | None |
+| Feather | Fast pandas I/O | Built-in |
+
+**Recommendation:** Use Parquet for all analytical data.
+
+### Naming Convention
+
+For time-series data:
+```
+{source}_{asset}_{timeframe}_{start}_{end}.parquet
+
+Examples:
+- binance_btcusdt_1h_20230101_20231231.parquet
+- yahoo_spy_1d_20200101_20231231.parquet
+```
+
+### Git Strategy
+
+| Directory | Git Tracked | Reason |
+|-----------|-------------|--------|
+| `raw/` | No | Too large, can be re-downloaded |
+| `processed/` | No | Can be regenerated from raw |
+| `external/` | No | Third-party, usually large |
+| `cache/` | No | Temporary, safe to delete |
+| `samples/` | Yes | Small test fixtures needed for CI |
+
+**Size guidelines:**
+- `samples/`: Keep total under 10MB
+- Individual files > 100MB: Never in git
+- Files 10-100MB: Consider Git LFS if versioning needed
+
+### Large File Management
+
+For datasets too large for git:
+
+1. **Document download scripts** in `scripts/`
+2. **Use DVC** (Data Version Control) for versioned data pipelines
+3. **Use Git LFS** only for medium files that truly need versioning
+4. **Cloud storage** (S3, GCS) for very large datasets with local caching
+
+### Integration with DuckDB
+
+Query Parquet files directly:
+
+```python
+import duckdb
+
+# Query without loading into memory
+result = duckdb.query("""
+    SELECT date, close 
+    FROM 'data/raw/binance_btcusdt_1h_*.parquet'
+    WHERE date >= '2023-01-01'
+""").df()
+```
+
 ---
 
 ## ORM Usage
@@ -301,3 +403,11 @@ When adopting this module:
 - [ ] Set up Parquet export pipeline
 - [ ] Configure analysis environment
 - [ ] Document query patterns
+
+**File-Based Data Storage:**
+- [ ] Create `data/` directory structure
+- [ ] Configure `.gitignore` for data files
+- [ ] Document data sources in `data/README.md`
+- [ ] Create download/processing scripts in `scripts/`
+- [ ] Set up sample data for tests in `data/samples/`
+- [ ] Consider DVC if data versioning needed

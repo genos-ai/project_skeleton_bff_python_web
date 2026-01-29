@@ -1,11 +1,12 @@
 # 16 - Project Template
 
-*Version: 1.0.0*
+*Version: 1.1.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 1.1.0 (2025-01-29): Added data/ directory for file-based data storage
 - 1.0.0 (2025-01-27): Initial project template structure
 
 ---
@@ -26,6 +27,19 @@ This document defines the standard directory structure for new projects. All pro
 ├── requirements.txt
 ├── pytest.ini
 │
+├── data/
+│   ├── README.md                   # Data directory documentation
+│   ├── raw/                        # Original source data (not tracked)
+│   │   └── .gitkeep
+│   ├── processed/                  # Transformed data (not tracked)
+│   │   └── .gitkeep
+│   ├── external/                   # Third-party data (not tracked)
+│   │   └── .gitkeep
+│   ├── cache/                      # Temporary files (not tracked)
+│   │   └── .gitkeep
+│   └── samples/                    # Test data (tracked, < 10MB)
+│       └── .gitkeep
+│
 ├── config/
 │   ├── .env.example                # Required env vars
 │   └── settings/
@@ -44,7 +58,7 @@ This document defines the standard directory structure for new projects. All pro
 │   │   └── README.md               # Plans, checklists, progress tracking
 │   └── 04-reference/
 │       ├── README.md
-│       └── architecture-standards/ # Architecture standards (16 files)
+│       └── architecture-standards/ # Architecture standards (18 files)
 │           ├── 00-overview.md
 │           ├── 01-core-principles.md
 │           ├── 02-primitive-identification.md
@@ -61,7 +75,8 @@ This document defines the standard directory structure for new projects. All pro
 │           ├── 13-development-workflow.md
 │           ├── 14-deployment.md
 │           ├── 15-error-codes.md
-│           └── 16-project-template.md
+│           ├── 16-project-template.md
+│           └── 17-testing-standards.md
 │
 ├── modules/
 │   ├── backend/
@@ -162,6 +177,44 @@ This document defines the standard directory structure for new projects. All pro
 | `README.md` | Project overview, setup instructions |
 | `requirements.txt` | Python dependencies |
 | `pytest.ini` | Pytest configuration |
+
+---
+
+## Data Directory
+
+The `data/` directory contains file-based data storage. See **05-data-layer.md** for database storage.
+
+| Path | Purpose | Git Tracked |
+|------|---------|-------------|
+| `data/raw/` | Original source data (downloads, exports) | No |
+| `data/processed/` | Cleaned and transformed data | No |
+| `data/external/` | Third-party reference data | No |
+| `data/cache/` | Temporary processing files | No |
+| `data/samples/` | Small test datasets | Yes (< 10MB) |
+
+### File Formats
+
+| Format | Use Case |
+|--------|----------|
+| Parquet | Columnar data, time series, large datasets |
+| CSV | Simple tabular data, human-readable |
+| JSON | Configuration, metadata |
+
+### Naming Convention
+
+```
+{source}_{asset}_{timeframe}_{start}_{end}.parquet
+
+Examples:
+- binance_btcusdt_1h_20230101_20231231.parquet
+- yahoo_spy_1d_20200101_20231231.parquet
+```
+
+### Size Management
+
+- Large files (> 100MB): Not in git, document download scripts
+- Medium files (10-100MB): Consider Git LFS
+- Test data (< 10MB): Goes in `data/samples/`, tracked in git
 
 ---
 
@@ -396,7 +449,7 @@ tests/
 ## Checklist for New Projects
 
 - [ ] `.project_root` file created
-- [ ] `.gitignore` configured
+- [ ] `.gitignore` configured (including data/ rules)
 - [ ] `README.md` customized
 - [ ] `.env.example` lists all required variables
 - [ ] `config/settings/*.yaml` files configured
@@ -407,3 +460,4 @@ tests/
 - [ ] Health endpoints working
 - [ ] Frontend builds successfully
 - [ ] Tests directory structure in place
+- [ ] Data directory structure in place (if handling file-based data)

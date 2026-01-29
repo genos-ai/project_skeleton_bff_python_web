@@ -1,11 +1,12 @@
 # Architecture Standards Overview
 
-*Version: 1.1.0*
+*Version: 1.4.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 1.4.0 (2025-01-29): Added data/ directory structure for file-based data storage
 - 1.3.0 (2025-01-29): Added Python environment management guide (uv vs conda) to 13-development-workflow.md
 - 1.2.0 (2025-01-29): Added 17-testing-standards.md with comprehensive testing guidance
 - 1.1.0 (2025-01-27): Added 16-project-template.md with complete project structure

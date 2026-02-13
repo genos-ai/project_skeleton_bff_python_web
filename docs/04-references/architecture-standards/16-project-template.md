@@ -27,17 +27,11 @@ This document defines the standard directory structure for new projects. All pro
 ├── requirements.txt
 ├── pytest.ini
 │
-├── data/
-│   ├── README.md                   # Data directory documentation
-│   ├── raw/                        # Original source data (not tracked)
+├── data/                           # Runtime artifacts (not tracked)
+│   ├── README.md
+│   ├── logs/                       # Application logs
 │   │   └── .gitkeep
-│   ├── processed/                  # Transformed data (not tracked)
-│   │   └── .gitkeep
-│   ├── external/                   # Third-party data (not tracked)
-│   │   └── .gitkeep
-│   ├── cache/                      # Temporary files (not tracked)
-│   │   └── .gitkeep
-│   └── samples/                    # Test data (tracked, < 10MB)
+│   └── cache/                      # Temporary/cached files
 │       └── .gitkeep
 │
 ├── config/
@@ -82,8 +76,8 @@ This document defines the standard directory structure for new projects. All pro
 │   ├── backend/
 │   │   ├── __init__.py
 │   │   ├── main.py                 # FastAPI entry point
-│   │   ├── alembic.ini
-│   │   ├── alembic/
+│   │   ├── migrations/             # Database migrations
+│   │   │   ├── alembic.ini
 │   │   │   ├── env.py
 │   │   │   └── versions/
 │   │   ├── api/
@@ -159,11 +153,8 @@ This document defines the standard directory structure for new projects. All pro
 │       ├── __init__.py
 │       └── conftest.py             # E2E fixtures
 │
-├── scripts/
-│   └── README.md
-│
-└── logs/
-    └── .gitkeep
+└── scripts/
+    └── README.md
 ```
 
 ---
@@ -182,39 +173,12 @@ This document defines the standard directory structure for new projects. All pro
 
 ## Data Directory
 
-The `data/` directory contains file-based data storage. See **05-data-layer.md** for database storage.
+The `data/` directory contains runtime artifacts. Not tracked in git.
 
-| Path | Purpose | Git Tracked |
-|------|---------|-------------|
-| `data/raw/` | Original source data (downloads, exports) | No |
-| `data/processed/` | Cleaned and transformed data | No |
-| `data/external/` | Third-party reference data | No |
-| `data/cache/` | Temporary processing files | No |
-| `data/samples/` | Small test datasets | Yes (< 10MB) |
-
-### File Formats
-
-| Format | Use Case |
-|--------|----------|
-| Parquet | Columnar data, time series, large datasets |
-| CSV | Simple tabular data, human-readable |
-| JSON | Configuration, metadata |
-
-### Naming Convention
-
-```
-{source}_{asset}_{timeframe}_{start}_{end}.parquet
-
-Examples:
-- binance_btcusdt_1h_20230101_20231231.parquet
-- yahoo_spy_1d_20200101_20231231.parquet
-```
-
-### Size Management
-
-- Large files (> 100MB): Not in git, document download scripts
-- Medium files (10-100MB): Consider Git LFS
-- Test data (< 10MB): Goes in `data/samples/`, tracked in git
+| Path | Purpose |
+|------|---------|
+| `data/logs/` | Application logs |
+| `data/cache/` | Temporary/cached files |
 
 ---
 
@@ -288,7 +252,7 @@ The backend follows a layered architecture.
 | `schemas/` | Pydantic request/response schemas |
 | `services/` | Business logic |
 | `tasks/` | Background task definitions |
-| `alembic/` | Database migrations |
+| `migrations/` | Database migrations (Alembic) |
 
 ### API Layer Structure
 
@@ -432,8 +396,7 @@ tests/
    ```
 7. Run database migrations:
    ```bash
-   cd modules/backend
-   alembic upgrade head
+   python example.py --action migrate --migrate-action upgrade
    ```
 8. Start development servers:
    ```bash

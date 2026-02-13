@@ -7,7 +7,7 @@ Base class for all repositories with common CRUD operations.
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.backend.core.exceptions import NotFoundError
@@ -107,3 +107,10 @@ class BaseRepository(Generic[ModelType]):
             select(self.model.id).where(self.model.id == str(id))
         )
         return result.scalar_one_or_none() is not None
+
+    async def count(self) -> int:
+        """Get total count of records."""
+        result = await self.session.execute(
+            select(func.count()).select_from(self.model)
+        )
+        return result.scalar_one()

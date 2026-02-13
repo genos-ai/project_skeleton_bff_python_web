@@ -34,7 +34,7 @@ See [Architecture Standards](docs/04-references/architecture-standards/00-overvi
 │       └── src/
 ├── tests/                  # Test suite
 ├── scripts/                # Utility scripts
-└── logs/                   # Application logs
+└── data/                   # Runtime data (logs, cache, uploads)
 ```
 
 ## Quick Start

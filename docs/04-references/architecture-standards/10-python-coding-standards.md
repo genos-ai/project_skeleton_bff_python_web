@@ -48,7 +48,8 @@ project/
 │       ├── repositories/
 │       ├── schemas/
 │       └── services/
-└── logs/
+└── data/
+    └── logs/
 ```
 
 ### File Size Limits

@@ -54,7 +54,8 @@ project/
 │       ├── services/
 │       └── main.py
 ├── tests/
-├── logs/
+├── data/
+│   └── logs/
 ├── requirements.txt
 └── .project_root
 ```
@@ -71,7 +72,7 @@ project/
 | modules/backend/schemas/ | Pydantic models for API request/response |
 | modules/backend/services/ | Business logic, orchestration |
 | tests/ | All test files |
-| logs/ | Application logs |
+| data/logs/ | Application logs |
 
 ---
 
@@ -309,78 +310,13 @@ LIMIT 50;
 
 ## Background Tasks
 
-### Standard: Taskiq with Redis
+For background task processing and scheduled jobs, see [20-background-tasks.md](20-background-tasks.md).
 
-Background tasks use Taskiq with Redis Streams.
-
-Rationale:
-- Async-native (matches FastAPI)
-- Excellent performance
-- Single system for both triggered and scheduled tasks
-- Full type hints and dependency injection support
-
-### Background Tasks (API-Triggered)
-
-```python
-from tasks.broker import broker
-
-@broker.task
-async def process_data(item_id: str) -> dict:
-    """Process data asynchronously."""
-    result = await heavy_processing(item_id)
-    return {"status": "completed", "item_id": item_id}
-
-# In API endpoint
-@router.post("/items/{item_id}/process")
-async def trigger_processing(item_id: str):
-    task = await process_data.kiq(item_id)
-    return {"task_id": task.task_id}
-```
-
-### Scheduled Tasks
-
-```python
-from taskiq import TaskiqScheduler
-from tasks.broker import broker
-
-scheduler = TaskiqScheduler(broker=broker)
-
-# Daily at 6 AM UTC
-@scheduler.cron("0 6 * * *")
-@broker.task
-async def daily_cleanup():
-    await cleanup_old_records(days=30)
-
-# Every 15 minutes
-@scheduler.cron("*/15 * * * *")
-@broker.task
-async def periodic_sync():
-    await sync_external_data()
-```
-
-### Task Categories
-
-| Category | Example | Retry Policy |
-|----------|---------|--------------|
-| Critical | Payment processing | 3 retries, exponential backoff |
-| Standard | Report generation | 5 retries, exponential backoff |
-| Scheduled | Data cleanup | No retry, runs on next schedule |
-| Batch | Bulk operations | No retry, manual intervention |
-
-### Idempotency
-
-All tasks must be idempotent:
-
-```python
-@broker.task
-async def process_payment(payment_id: str, idempotency_key: str):
-    if await already_processed(idempotency_key):
-        return {"status": "already_processed"}
-    
-    result = await execute_payment(payment_id)
-    await mark_processed(idempotency_key)
-    return result
-```
+Summary:
+- **Standard**: Taskiq with Redis
+- **On-demand tasks**: Triggered by code via `.kiq()`
+- **Scheduled tasks**: Cron-based via TaskiqScheduler
+- **CLI**: `python example.py --action worker` and `--action scheduler`
 
 ---
 

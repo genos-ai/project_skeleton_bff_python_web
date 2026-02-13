@@ -4,15 +4,12 @@ Base Schemas.
 Standard API response schemas following architecture standards.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-def utc_now() -> datetime:
-    """Return current UTC time as timezone-naive datetime."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from modules.backend.core.utils import utc_now
 
 
 DataT = TypeVar("DataT")

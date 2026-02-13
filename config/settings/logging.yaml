@@ -12,7 +12,7 @@
 #       enabled     - Enable console output (boolean, default: true)
 #     file          - File output settings (object)
 #       enabled     - Enable file output (boolean, default: true)
-#       path        - Log file path (string, default: logs/app.log)
+#       path        - Log file path (string, default: data/logs/app.log)
 #       max_bytes   - Max file size before rotation (integer, default: 10485760)
 #       backup_count - Number of backup files to keep (integer, default: 5)
 # =============================================================================
@@ -33,6 +33,6 @@ handlers:
     enabled: true
   file:
     enabled: true
-    path: "logs/app.log"
+    path: "data/logs/app.log"
     max_bytes: 10485760
     backup_count: 5

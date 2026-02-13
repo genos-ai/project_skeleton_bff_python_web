@@ -36,7 +36,9 @@ These apply to all projects without exception:
 | 02-primitive-identification.md | Identifying the system's fundamental data type |
 | 03-backend-architecture.md | Backend framework, service layer, API design |
 | 04-module-structure.md | Module organization and inter-module communication |
-| 09-authentication.md | Authentication, authorization, API security |
+| 09-authentication.md | Authentication and authorization |
+| 18-security-standards.md | Application security (OWASP, cryptography, input handling) |
+| 19-data-protection.md | Data protection and privacy (PII, GDPR, retention) |
 | 10-python-coding-standards.md | Python file organization, imports, CLI, error handling |
 | 12-observability.md | Logging, monitoring, debugging, alerting |
 | 13-development-workflow.md | Git workflow, CI/CD, testing, versioning |
@@ -44,6 +46,7 @@ These apply to all projects without exception:
 | 15-error-codes.md | Error code registry, client handling guide |
 | 16-project-template.md | Standard project directory structure |
 | 17-testing-standards.md | Test organization, fixtures, coverage |
+| 20-background-tasks.md | Background tasks and scheduling (Taskiq) |
 
 ### Optional Modules
 

@@ -4,7 +4,7 @@ Security Utilities.
 Authentication, authorization, and security helpers.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any
 
 from jose import JWTError, jwt
@@ -13,16 +13,12 @@ from passlib.context import CryptContext
 from modules.backend.core.config import get_settings
 from modules.backend.core.exceptions import AuthenticationError
 from modules.backend.core.logging import get_logger
+from modules.backend.core.utils import utc_now
 
 logger = get_logger(__name__)
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-def utc_now() -> datetime:
-    """Return current UTC time as timezone-naive datetime."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def hash_password(password: str) -> str:

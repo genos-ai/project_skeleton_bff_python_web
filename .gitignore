@@ -96,8 +96,8 @@ config/.env
 # =============================================================================
 # Logs
 # =============================================================================
-logs/*
-!logs/.gitkeep
+data/logs/*
+!data/logs/.gitkeep
 *.log
 
 # =============================================================================
@@ -107,30 +107,10 @@ logs/*
 *.sqlite3
 
 # =============================================================================
-# Data Files
+# Data Directory (runtime artifacts)
 # =============================================================================
-# Ignore large data files
-data/raw/*
-data/processed/*
-data/external/*
 data/cache/*
-
-# But keep the directory structure
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!data/external/.gitkeep
 !data/cache/.gitkeep
-
-# Allow sample data (for tests) - keep under 10MB total
-!data/samples/
-
-# Ignore common large data formats in root data folder
-data/*.parquet
-data/*.csv
-data/*.pkl
-data/*.h5
-data/*.hdf5
-data/*.feather
 
 # =============================================================================
 # Temporary files

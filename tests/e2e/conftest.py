@@ -13,7 +13,9 @@ from httpx import ASGITransport, AsyncClient
 @pytest.fixture
 async def e2e_client() -> AsyncGenerator[AsyncClient, None]:
     """Create a client for E2E testing."""
-    from modules.backend.main import app
+    from modules.backend.main import get_app
+
+    app = get_app()
 
     async with AsyncClient(
         transport=ASGITransport(app=app),

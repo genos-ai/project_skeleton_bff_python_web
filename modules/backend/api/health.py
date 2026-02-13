@@ -2,22 +2,104 @@
 Health Check Endpoints.
 
 Provides liveness, readiness, and detailed health checks.
+
+Endpoints:
+- /health: Liveness check (process running)
+- /health/ready: Readiness check (dependencies available)
+- /health/detailed: Component-by-component status (for debugging)
 """
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
 from modules.backend.core.logging import get_logger
+from modules.backend.core.utils import utc_now
 
 router = APIRouter()
 logger = get_logger(__name__)
 
 
-def utc_now() -> datetime:
-    """Return current UTC time as timezone-naive datetime."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+async def check_database() -> dict[str, Any]:
+    """
+    Check database connectivity.
+
+    Returns:
+        Dict with status, latency, and optional error message
+    """
+    try:
+        from modules.backend.core.config import get_settings
+        from modules.backend.core.database import get_db_session
+
+        settings = get_settings()
+
+        # Only check if database is configured
+        if not settings.db_host or not settings.db_name:
+            return {"status": "not_configured"}
+
+        start = datetime.now(timezone.utc)
+        async for session in get_db_session():
+            # Simple connectivity check
+            from sqlalchemy import text
+            await session.execute(text("SELECT 1"))
+            break  # Only need one iteration
+
+        latency_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+
+        return {
+            "status": "healthy",
+            "latency_ms": latency_ms,
+        }
+
+    except ImportError:
+        return {"status": "not_configured"}
+    except Exception as e:
+        logger.warning("Database health check failed", extra={"error": str(e)})
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+        }
+
+
+async def check_redis() -> dict[str, Any]:
+    """
+    Check Redis connectivity.
+
+    Returns:
+        Dict with status, latency, and optional error message
+    """
+    try:
+        from modules.backend.core.config import get_settings
+        import redis.asyncio as redis
+
+        settings = get_settings()
+
+        # Only check if Redis is configured
+        if not settings.redis_url:
+            return {"status": "not_configured"}
+
+        start = datetime.now(timezone.utc)
+        client = redis.from_url(settings.redis_url)
+        await client.ping()
+        await client.aclose()
+
+        latency_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+
+        return {
+            "status": "healthy",
+            "latency_ms": latency_ms,
+        }
+
+    except ImportError:
+        return {"status": "not_configured"}
+    except Exception as e:
+        logger.warning("Redis health check failed", extra={"error": str(e)})
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+        }
 
 
 @router.get("/health")
@@ -26,7 +108,8 @@ async def health_check() -> dict[str, str]:
     Liveness check.
 
     Returns 200 if the process is running.
-    Used by process monitors.
+    No dependency checks - this endpoint should always respond quickly.
+    Used by process monitors (e.g., Kubernetes liveness probe).
     """
     return {"status": "healthy"}
 
@@ -37,23 +120,54 @@ async def readiness_check() -> dict[str, Any]:
     Readiness check.
 
     Returns 200 if ready to serve traffic.
-    Checks critical dependencies (database, Redis).
-    Used by load balancers.
+    Checks critical dependencies (database, Redis) in parallel.
+    Used by load balancers (e.g., Kubernetes readiness probe).
+
+    Returns 503 if any critical dependency is unhealthy.
     """
-    checks: dict[str, dict[str, Any]] = {}
-    all_healthy = True
+    # Run checks in parallel for faster response
+    db_check, redis_check = await asyncio.gather(
+        check_database(),
+        check_redis(),
+        return_exceptions=True,
+    )
 
-    # TODO: Add database check
-    # TODO: Add Redis check
+    # Handle exceptions from gather
+    if isinstance(db_check, Exception):
+        db_check = {"status": "unhealthy", "error": str(db_check)}
+    if isinstance(redis_check, Exception):
+        redis_check = {"status": "unhealthy", "error": str(redis_check)}
 
-    status = "healthy" if all_healthy else "unhealthy"
+    checks = {
+        "database": db_check,
+        "redis": redis_check,
+    }
 
-    if not all_healthy:
-        logger.warning("Readiness check failed", extra={"checks": checks})
-        raise HTTPException(status_code=503, detail={"status": status, "checks": checks})
+    # Determine overall status
+    # "not_configured" is OK - the service can run without these if not needed
+    # "unhealthy" means a configured dependency is down
+    unhealthy_checks = [
+        name for name, check in checks.items()
+        if check.get("status") == "unhealthy"
+    ]
+
+    if unhealthy_checks:
+        status = "unhealthy"
+        logger.warning(
+            "Readiness check failed",
+            extra={"unhealthy": unhealthy_checks, "checks": checks},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": status,
+                "checks": checks,
+                "timestamp": utc_now().isoformat(),
+            },
+        )
 
     return {
-        "status": status,
+        "status": "healthy",
         "checks": checks,
         "timestamp": utc_now().isoformat(),
     }
@@ -64,18 +178,57 @@ async def detailed_health_check() -> dict[str, Any]:
     """
     Detailed health check.
 
-    Returns status of each component.
-    Should be protected by authentication in production.
-    Used for debugging.
+    Returns comprehensive status of each component.
+    Includes latency measurements and configuration status.
+
+    Note: Should be protected by authentication in production
+    to avoid exposing infrastructure details.
     """
-    # TODO: Add authentication check
-    # TODO: Add component-by-component status
+    # Run all checks in parallel
+    db_check, redis_check = await asyncio.gather(
+        check_database(),
+        check_redis(),
+        return_exceptions=True,
+    )
+
+    # Handle exceptions
+    if isinstance(db_check, Exception):
+        db_check = {"status": "error", "error": str(db_check)}
+    if isinstance(redis_check, Exception):
+        redis_check = {"status": "error", "error": str(redis_check)}
+
+    checks = {
+        "database": db_check,
+        "redis": redis_check,
+    }
+
+    # Add application info
+    try:
+        from modules.backend.core.config import get_settings, get_app_config
+        settings = get_settings()
+        app_config = get_app_config()
+
+        app_info = {
+            "name": settings.app_name,
+            "env": settings.app_env,
+            "debug": settings.app_debug,
+            "version": app_config.application.get("version", "unknown"),
+        }
+    except Exception:
+        app_info = {"status": "not_configured"}
+
+    # Determine overall status
+    statuses = [check.get("status") for check in checks.values()]
+    if "unhealthy" in statuses or "error" in statuses:
+        overall_status = "unhealthy"
+    elif all(s == "not_configured" for s in statuses):
+        overall_status = "healthy"  # No dependencies configured is OK
+    else:
+        overall_status = "healthy"
 
     return {
-        "status": "healthy",
-        "checks": {
-            "database": {"status": "not_configured"},
-            "redis": {"status": "not_configured"},
-        },
+        "status": overall_status,
+        "application": app_info,
+        "checks": checks,
         "timestamp": utc_now().isoformat(),
     }

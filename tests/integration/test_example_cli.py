@@ -153,7 +153,7 @@ class TestExampleCLIFromDifferentDirectory:
     """Test that CLI works when run from different directories."""
 
     def test_fails_gracefully_outside_project(self, tmp_path):
-        """Should fail gracefully when run outside project root."""
+        """Should fail gracefully when config cannot be loaded from different directory."""
         # Create an example.py copy without .project_root
         example_script = PROJECT_ROOT / "example.py"
 
@@ -165,7 +165,8 @@ class TestExampleCLIFromDifferentDirectory:
             text=True,
         )
 
-        # Assert - should fail because .project_root not found from tmp_path
-        # (actually it will work because example.py uses its own directory)
-        # This test documents the behavior
-        assert result.returncode == 0  # Works because PROJECT_ROOT is script location
+        # Assert - should fail because config loading fails when run from
+        # a different directory (get_app_config() uses find_project_root()
+        # which searches from cwd, not script location)
+        assert result.returncode == 1
+        assert "Error" in result.stderr or "error" in result.stdout.lower()

@@ -40,7 +40,7 @@ def validate_project_root() -> Path:
 @click.command()
 @click.option(
     "--action",
-    type=click.Choice(["server", "health", "config", "test", "info"]),
+    type=click.Choice(["server", "worker", "scheduler", "health", "config", "test", "info", "migrate"]),
     default="info",
     help="Action to perform.",
 )
@@ -81,6 +81,28 @@ def validate_project_root() -> Path:
     is_flag=True,
     help="Run tests with coverage (for test action).",
 )
+@click.option(
+    "--migrate-action",
+    type=click.Choice(["upgrade", "downgrade", "current", "history", "autogenerate"]),
+    default="current",
+    help="Migration action (for migrate action).",
+)
+@click.option(
+    "--revision",
+    default="head",
+    help="Target revision for upgrade/downgrade (default: head).",
+)
+@click.option(
+    "-m", "--message",
+    default=None,
+    help="Migration message (for autogenerate action).",
+)
+@click.option(
+    "--workers",
+    default=1,
+    type=int,
+    help="Number of worker processes (for worker action).",
+)
 def main(
     action: str,
     verbose: bool,
@@ -90,17 +112,27 @@ def main(
     reload: bool,
     test_type: str,
     coverage: bool,
+    migrate_action: str,
+    revision: str,
+    message: str | None,
+    workers: int,
 ) -> None:
     """
     BFF Application Entry Point.
 
-    Run the application server, check health, view configuration,
-    or run tests.
+    Run the application server, background worker, task scheduler,
+    check health, view configuration, or run tests.
 
     Examples:
 
         # Start development server
         python example.py --action server --reload --verbose
+
+        # Start background task worker
+        python example.py --action worker --verbose
+
+        # Start task scheduler (for cron-based tasks)
+        python example.py --action scheduler --verbose
 
         # Check application health
         python example.py --action health --debug
@@ -113,6 +145,11 @@ def main(
 
         # Show application info
         python example.py --action info
+
+        # Database migrations
+        python example.py --action migrate --migrate-action current
+        python example.py --action migrate --migrate-action upgrade
+        python example.py --action migrate --migrate-action autogenerate -m "add users table"
     """
     # Validate project root
     validate_project_root()
@@ -133,6 +170,10 @@ def main(
     # Dispatch to action handlers
     if action == "server":
         run_server(logger, host, port, reload)
+    elif action == "worker":
+        run_worker(logger, workers)
+    elif action == "scheduler":
+        run_scheduler(logger)
     elif action == "health":
         check_health(logger)
     elif action == "config":
@@ -141,6 +182,8 @@ def main(
         run_tests(logger, test_type, coverage)
     elif action == "info":
         show_info(logger)
+    elif action == "migrate":
+        run_migrations(logger, migrate_action, revision, message)
 
 
 def run_server(logger, host: str | None, port: int | None, reload: bool) -> None:
@@ -149,15 +192,22 @@ def run_server(logger, host: str | None, port: int | None, reload: bool) -> None
 
     try:
         settings = get_settings()
-        server_host = host or settings.server_host
-        server_port = port or settings.server_port
     except Exception as e:
-        logger.warning(
-            "Could not load settings, using defaults",
+        logger.error(
+            "Failed to load settings. Ensure config/.env exists and is configured.",
             extra={"error": str(e)},
         )
-        server_host = host or "127.0.0.1"
-        server_port = port or 8000
+        click.echo(
+            click.style(
+                "Error: Could not load settings. Copy config/.env.example to config/.env and configure it.",
+                fg="red",
+            ),
+            err=True,
+        )
+        sys.exit(1)
+
+    server_host = host or settings.server_host
+    server_port = port or settings.server_port
 
     logger.info(
         "Starting server",
@@ -186,6 +236,110 @@ def run_server(logger, host: str | None, port: int | None, reload: bool) -> None
         sys.exit(e.returncode)
 
 
+def run_worker(logger, workers: int) -> None:
+    """Start the Taskiq background task worker."""
+    logger.info("Starting background task worker", extra={"workers": workers})
+
+    # Verify Redis URL is configured
+    try:
+        from modules.backend.core.config import get_settings
+        settings = get_settings()
+        redis_url = settings.redis_url
+        logger.debug("Redis URL configured", extra={"redis_url": redis_url.split("@")[-1]})
+    except Exception as e:
+        logger.error(
+            "Failed to load settings. Ensure config/.env exists with REDIS_URL.",
+            extra={"error": str(e)},
+        )
+        click.echo(
+            click.style(
+                "Error: Could not load settings. Ensure REDIS_URL is configured in config/.env",
+                fg="red",
+            ),
+            err=True,
+        )
+        sys.exit(1)
+
+    cmd = [
+        sys.executable, "-m", "taskiq",
+        "worker",
+        "modules.backend.tasks.broker:broker",
+        "--workers", str(workers),
+    ]
+
+    click.echo(f"Starting Taskiq worker with {workers} worker(s)")
+    click.echo("Press Ctrl+C to stop\n")
+
+    try:
+        subprocess.run(cmd, check=True)
+    except KeyboardInterrupt:
+        logger.info("Worker stopped")
+    except subprocess.CalledProcessError as e:
+        logger.error("Worker failed to start", extra={"exit_code": e.returncode})
+        sys.exit(e.returncode)
+
+
+def run_scheduler(logger) -> None:
+    """Start the Taskiq task scheduler for cron-based tasks."""
+    logger.info("Starting task scheduler")
+
+    # Verify Redis URL is configured
+    try:
+        from modules.backend.core.config import get_settings
+        settings = get_settings()
+        redis_url = settings.redis_url
+        logger.debug("Redis URL configured", extra={"redis_url": redis_url.split("@")[-1]})
+    except Exception as e:
+        logger.error(
+            "Failed to load settings. Ensure config/.env exists with REDIS_URL.",
+            extra={"error": str(e)},
+        )
+        click.echo(
+            click.style(
+                "Error: Could not load settings. Ensure REDIS_URL is configured in config/.env",
+                fg="red",
+            ),
+            err=True,
+        )
+        sys.exit(1)
+
+    # Register scheduled tasks before starting scheduler
+    try:
+        from modules.backend.tasks.scheduled import register_scheduled_tasks, SCHEDULED_TASKS
+        register_scheduled_tasks()
+
+        click.echo("Registered scheduled tasks:")
+        for task_name, config in SCHEDULED_TASKS.items():
+            schedule = config["schedule"][0].get("cron", "N/A")
+            click.echo(f"  - {task_name}: {schedule}")
+        click.echo()
+    except Exception as e:
+        logger.error("Failed to register scheduled tasks", extra={"error": str(e)})
+        click.echo(
+            click.style(f"Error registering tasks: {e}", fg="red"),
+            err=True,
+        )
+        sys.exit(1)
+
+    cmd = [
+        sys.executable, "-m", "taskiq",
+        "scheduler",
+        "modules.backend.tasks.scheduler:scheduler",
+    ]
+
+    click.echo("Starting Taskiq scheduler")
+    click.echo("WARNING: Run only ONE scheduler instance to avoid duplicate task execution")
+    click.echo("Press Ctrl+C to stop\n")
+
+    try:
+        subprocess.run(cmd, check=True)
+    except KeyboardInterrupt:
+        logger.info("Scheduler stopped")
+    except subprocess.CalledProcessError as e:
+        logger.error("Scheduler failed to start", extra={"exit_code": e.returncode})
+        sys.exit(e.returncode)
+
+
 def check_health(logger) -> None:
     """Check application health by testing imports and configuration."""
     click.echo("Checking application health...\n")
@@ -206,7 +360,7 @@ def check_health(logger) -> None:
     # Check 2: Configuration loading
     try:
         app_config = get_app_config()
-        app_name = app_config.application.get("name", "Unknown")
+        app_name = app_config.application.get("name")
         checks.append(("YAML configuration", True, f"App: {app_name}"))
         logger.debug("Configuration loaded", extra={"app_name": app_name})
     except Exception as e:
@@ -224,7 +378,8 @@ def check_health(logger) -> None:
 
     # Check 4: FastAPI app
     try:
-        from modules.backend.main import app
+        from modules.backend.main import get_app
+        app = get_app()
         checks.append(("FastAPI application", True, f"Title: {app.title}"))
         logger.debug("FastAPI app loaded", extra={"title": app.title})
     except Exception as e:
@@ -345,6 +500,66 @@ def run_tests(logger, test_type: str, coverage: bool) -> None:
         sys.exit(1)
 
 
+def run_migrations(
+    logger,
+    migrate_action: str,
+    revision: str,
+    message: str | None,
+) -> None:
+    """Run database migrations using Alembic."""
+    logger.info(
+        "Running migrations",
+        extra={"action": migrate_action, "revision": revision},
+    )
+
+    # Alembic config path
+    alembic_ini = PROJECT_ROOT / "modules" / "backend" / "migrations" / "alembic.ini"
+
+    if not alembic_ini.exists():
+        click.echo(
+            click.style("Error: modules/backend/migrations/alembic.ini not found.", fg="red"),
+            err=True,
+        )
+        sys.exit(1)
+
+    # Build alembic command
+    cmd = [sys.executable, "-m", "alembic", "-c", str(alembic_ini)]
+
+    if migrate_action == "upgrade":
+        cmd.extend(["upgrade", revision])
+        click.echo(f"Upgrading database to revision: {revision}")
+    elif migrate_action == "downgrade":
+        cmd.extend(["downgrade", revision])
+        click.echo(f"Downgrading database to revision: {revision}")
+    elif migrate_action == "current":
+        cmd.append("current")
+        click.echo("Showing current database revision...")
+    elif migrate_action == "history":
+        cmd.extend(["history", "--verbose"])
+        click.echo("Showing migration history...")
+    elif migrate_action == "autogenerate":
+        if not message:
+            click.echo(
+                click.style("Error: --message/-m required for autogenerate.", fg="red"),
+                err=True,
+            )
+            sys.exit(1)
+        cmd.extend(["revision", "--autogenerate", "-m", message])
+        click.echo(f"Generating migration: {message}")
+
+    click.echo()
+
+    try:
+        result = subprocess.run(cmd, cwd=PROJECT_ROOT)
+        if result.returncode != 0:
+            logger.error("Migration failed", extra={"exit_code": result.returncode})
+            sys.exit(result.returncode)
+        logger.info("Migration completed successfully")
+    except FileNotFoundError:
+        logger.error("alembic not found. Install with: pip install alembic")
+        sys.exit(1)
+
+
 def show_info(logger) -> None:
     """Display application information."""
     click.echo("BFF Python Web Application")
@@ -353,20 +568,33 @@ def show_info(logger) -> None:
     try:
         from modules.backend.core.config import get_app_config
         app_config = get_app_config()
-        click.echo(f"Name: {app_config.application.get('name', 'Unknown')}")
-        click.echo(f"Version: {app_config.application.get('version', 'Unknown')}")
-        click.echo(f"Description: {app_config.application.get('description', 'N/A')}")
-    except Exception:
-        click.echo("Name: BFF Application")
-        click.echo("Version: 0.1.0")
+        click.echo(f"Name: {app_config.application.get('name')}")
+        click.echo(f"Version: {app_config.application.get('version')}")
+        click.echo(f"Description: {app_config.application.get('description')}")
+    except Exception as e:
+        logger.error(
+            "Failed to load application configuration",
+            extra={"error": str(e)},
+        )
+        click.echo(
+            click.style(
+                "Error: Could not load application.yaml configuration.",
+                fg="red",
+            ),
+            err=True,
+        )
+        sys.exit(1)
 
     click.echo()
     click.echo("Available Actions:")
-    click.echo("  --action server   Start the development server")
-    click.echo("  --action health   Check application health")
-    click.echo("  --action config   Display configuration")
-    click.echo("  --action test     Run test suite")
-    click.echo("  --action info     Show this information")
+    click.echo("  --action server    Start the development server")
+    click.echo("  --action worker    Start background task worker")
+    click.echo("  --action scheduler Start task scheduler (cron-based tasks)")
+    click.echo("  --action health    Check application health")
+    click.echo("  --action config    Display configuration")
+    click.echo("  --action test      Run test suite")
+    click.echo("  --action migrate   Run database migrations")
+    click.echo("  --action info      Show this information")
     click.echo()
     click.echo("Logging Options:")
     click.echo("  --verbose, -v     Enable INFO level logging")
@@ -374,8 +602,13 @@ def show_info(logger) -> None:
     click.echo()
     click.echo("Examples:")
     click.echo("  python example.py --action server --reload --verbose")
+    click.echo("  python example.py --action worker --workers 2 --verbose")
+    click.echo("  python example.py --action scheduler --verbose")
     click.echo("  python example.py --action health --debug")
     click.echo("  python example.py --action test --test-type unit --coverage")
+    click.echo("  python example.py --action migrate --migrate-action current")
+    click.echo("  python example.py --action migrate --migrate-action upgrade")
+    click.echo("  python example.py --action migrate --migrate-action autogenerate -m 'add users'")
 
     logger.debug("Info displayed")
 

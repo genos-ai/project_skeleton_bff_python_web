@@ -4,16 +4,13 @@ SQLAlchemy Base Model.
 Base class for all database models with common fields and utilities.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-
-def utc_now() -> datetime:
-    """Return current UTC time as timezone-naive datetime."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from modules.backend.core.utils import utc_now
 
 
 class Base(DeclarativeBase):

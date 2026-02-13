@@ -9,11 +9,11 @@ This directory contains all project documentation.
 | `01-getting-started/` | Installation, setup, quickstart guides |
 | `02-architecture/` | System design, diagrams, architecture decisions |
 | `03-implementation/` | Implementation plans, checklists, progress tracking |
-| `04-references/` | Architecture standards, API docs, external references |
+| `99-reference-architecture/` | Architecture standards, coding standards, detailed specifications |
 
 ## Quick Links
 
 - [Getting Started](01-getting-started/README.md)
 - [Architecture](02-architecture/README.md)
 - [Implementation](03-implementation/README.md)
-- [Architecture Standards](04-references/architecture-standards/00-overview.md)
+- [Reference Architecture](99-reference-architecture/00-overview.md)

@@ -194,6 +194,61 @@ async def metrics_aggregation(interval_minutes: int = 15) -> dict[str, Any]:
     return result
 
 
+    # =============================================================================
+# Example: Notification Task with Telegram Integration
+# =============================================================================
+
+
+async def check_pending_notifications() -> dict[str, Any]:
+    """
+    Check and send pending notifications via Telegram.
+
+    Runs every minute to process queued notifications.
+
+    This is an example of integrating background tasks with Telegram notifications.
+    In a real implementation, this would:
+    1. Fetch pending notifications from database/queue
+    2. Send each notification via Telegram
+    3. Mark notifications as sent or handle failures
+
+    Returns:
+        Processing results
+    """
+    logger.debug("Checking pending notifications")
+
+    # Example implementation (replace with real logic):
+    #
+    # from modules.telegram.services import get_notification_service
+    #
+    # notification_service = get_notification_service()
+    # pending = await get_pending_notifications()
+    # sent_count = 0
+    #
+    # for notification in pending:
+    #     result = await notification_service.send_alert(
+    #         user_id=notification.user_telegram_id,
+    #         title=notification.title,
+    #         body=notification.body,
+    #         alert_type=notification.alert_type,
+    #         data=notification.data,
+    #     )
+    #     if result.success:
+    #         await mark_notification_sent(notification.id)
+    #         sent_count += 1
+    #     else:
+    #         await mark_notification_failed(notification.id, result.error)
+
+    result = {
+        "status": "completed",
+        "notifications_checked": 0,  # Replace with actual count
+        "notifications_sent": 0,  # Replace with actual count
+        "checked_at": utc_now().isoformat(),
+    }
+
+    logger.debug("Notification check completed", extra=result)
+    return result
+
+
 # =============================================================================
 # Schedule Configuration
 # =============================================================================
@@ -224,6 +279,15 @@ SCHEDULED_TASKS = {
         "retry_on_error": False,
         "description": "Aggregate metrics every 15 minutes",
     },
+    # =========================================================================
+    # Telegram Notification Example (uncomment to enable)
+    # =========================================================================
+    # "check_pending_notifications": {
+    #     "function": check_pending_notifications,
+    #     "schedule": [{"cron": "* * * * *"}],  # Every minute
+    #     "retry_on_error": False,
+    #     "description": "Process pending notifications and send via Telegram",
+    # },
 }
 
 

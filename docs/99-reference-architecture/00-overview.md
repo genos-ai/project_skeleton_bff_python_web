@@ -1,11 +1,12 @@
 # Architecture Standards Overview
 
-*Version: 1.4.0*
+*Version: 1.5.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 1.5.0 (2026-02-13): Added 21-telegram-integration.md for Telegram bot integration (aiogram v3)
 - 1.4.0 (2025-01-29): Added data/ directory structure for file-based data storage
 - 1.3.0 (2025-01-29): Added Python environment management guide (uv vs conda) to 13-development-workflow.md
 - 1.2.0 (2025-01-29): Added 17-testing-standards.md with comprehensive testing guidance
@@ -59,6 +60,7 @@ Adopt these based on project requirements:
 | 07-frontend-architecture.md | Projects with web frontends |
 | 08-llm-integration.md | Projects using LLM/AI capabilities |
 | 11-typescript-coding-standards.md | Projects with TypeScript/React frontends |
+| 21-telegram-integration.md | Projects with Telegram bot interfaces |
 
 ---
 
@@ -135,6 +137,7 @@ Architecture choices favor technologies with extensive AI training data. This ma
 | 07-frontend-architecture.md | Building a web UI |
 | 08-llm-integration.md | Integrating AI/LLM capabilities |
 | 11-typescript-coding-standards.md | Building React frontend |
+| 21-telegram-integration.md | Building Telegram bot interface |
 
 ### Module Dependencies
 

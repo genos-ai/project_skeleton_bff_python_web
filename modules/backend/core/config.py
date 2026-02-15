@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def find_project_root() -> Path:
@@ -66,16 +66,28 @@ class Settings(BaseSettings):
     server_host: str = "0.0.0.0"
     server_port: int = 8000
 
-    # CORS
-    cors_origins: list[str] = []
+    # CORS (comma-separated string, parsed to list via property)
+    cors_origins_str: str = ""
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v: Any) -> list[str]:
+    # Telegram Bot
+    telegram_bot_token: str | None = None
+    telegram_webhook_secret: str | None = None
+    telegram_webhook_path: str = "/webhook/telegram"
+    telegram_authorized_users_str: str = ""
+
+    @property
+    def cors_origins(self) -> list[str]:
         """Parse CORS origins from comma-separated string."""
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return v or []
+        if not self.cors_origins_str:
+            return []
+        return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
+
+    @property
+    def telegram_authorized_users(self) -> list[int]:
+        """Parse authorized Telegram user IDs from comma-separated string."""
+        if not self.telegram_authorized_users_str:
+            return []
+        return [int(uid.strip()) for uid in self.telegram_authorized_users_str.split(",") if uid.strip()]
 
     @property
     def database_url(self) -> str:
@@ -93,10 +105,11 @@ class Settings(BaseSettings):
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
-    class Config:
-        env_file = "config/.env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    model_config = SettingsConfigDict(
+        env_file="config/.env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
 
 
 class AppConfig:

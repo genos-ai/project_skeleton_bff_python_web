@@ -559,18 +559,12 @@ Test environments use smallest viable models. Advanced models only used in produ
 
 ## Agentic AI Systems
 
-For autonomous AI agents — systems where LLMs reason, plan, use tools, collaborate, and maintain memory — see **[25-agentic-architecture.md](25-agentic-architecture.md)**.
+For autonomous AI agents — systems where LLMs reason, plan, use tools, collaborate, and maintain memory — see:
 
-That module builds on this one and covers:
-- Agent definitions and registry
-- Orchestration patterns (single agent, multi-step plans, collaborative teams)
-- Tool registry with sandboxing and permissions
-- Execution engine with safety enforcement
-- Human-in-the-loop (approval gates, escalation, kill switch)
-- Memory architecture (task-scoped through persistent/learning)
-- Full audit trail and reasoning chain storage
+- **[25-agentic-architecture.md](25-agentic-architecture.md)** — Conceptual architecture (framework-agnostic): phases, principles, orchestration patterns, AgentTask primitive, safety model
+- **[26-agentic-pydanticai.md](26-agentic-pydanticai.md)** — Implementation guide (PydanticAI-specific): coordinator, agents, middleware, database schema, testing patterns, configuration
 
-This module (08) provides the LLM provider layer, prompt management, cost tracking, and error handling that the agentic architecture depends on. Adopt both when building agent systems.
+This module (08) provides the LLM provider layer, prompt management, cost tracking, and error handling that the agentic architecture depends on. Adopt all three when building agent systems.
 
 ---
 
@@ -598,13 +592,14 @@ If also adopting **25-agentic-architecture.md**:
 - [ ] Ensure model version tracking returns exact model from provider response
 - [ ] Ensure cost tracking includes duration_ms and fallback_used fields
 - [ ] Add agent prompt directory (`config/prompts/agents/`)
-- [ ] Follow the Phase 1 checklist in 25-agentic-architecture.md
+- [ ] Follow the Phase 1 checklist in 26-agentic-pydanticai.md
 
 ---
 
 ## Related Documentation
 
-- [25-agentic-architecture.md](25-agentic-architecture.md) — Agentic AI systems (agents, orchestration, tools, memory)
+- [25-agentic-architecture.md](25-agentic-architecture.md) — Agentic AI conceptual architecture (phases, principles, patterns)
+- [26-agentic-pydanticai.md](26-agentic-pydanticai.md) — Agentic AI implementation using PydanticAI
 - [06-event-architecture.md](06-event-architecture.md) — Event bus for async processing
 - [12-observability.md](12-observability.md) — Logging and monitoring standards
 - [19-background-tasks.md](19-background-tasks.md) — Background task processing

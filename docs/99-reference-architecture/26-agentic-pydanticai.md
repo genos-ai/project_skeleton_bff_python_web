@@ -1,12 +1,13 @@
 # 26 - Agentic AI: PydanticAI Implementation (Optional Module)
 
-*Version: 1.1.0*
+*Version: 2.0.0*
 *Author: Architecture Team*
 *Created: 2026-02-18*
 
 ## Changelog
 
-- 1.1.0 (2026-02-18): Added concept-to-implementation mapping table, data model mapping, reconciled SQL schema with AgentTask primitive (field names, feedback column, status CHECK constraint)
+- 2.0.0 (2026-02-19): Rewrote with PydanticAI-native patterns — coordinator as PydanticAI Agent, agent-as-tool delegation with cost propagation, UsageLimits for budget enforcement, decorator-based middleware, merged entry points/HITL/database models from research docs, removed LangGraph, fixed all hardcoded values and datetime issues
+- 1.1.0 (2026-02-18): Added concept-to-implementation mapping, data model mapping, reconciled SQL schema with AgentTask primitive
 - 1.0.0 (2026-02-18): Initial PydanticAI implementation guide
 
 ---
@@ -15,83 +16,174 @@
 
 This module is the **implementation companion** to **[25-agentic-architecture.md](25-agentic-architecture.md)**, which defines the conceptual architecture (phases, principles, orchestration patterns, primitive). This document specifies how those concepts are realized using PydanticAI.
 
-**Do not adopt this module without first reading 25-agentic-architecture.md.** The conceptual foundation — the 5 phases, 28 design principles, orchestration Options A-D, tiered delegation, orchestrator evolution — lives there and is not repeated here.
+**Do not adopt this module without first reading 25-agentic-architecture.md.**
 
 **Dependencies**: 25-agentic-architecture.md, 08-llm-integration.md, 06-event-architecture.md.
 
 ---
 
-## Concept-to-Implementation Mapping
+## Glossary
 
-This table maps each conceptual component from 25-agentic-architecture.md to its concrete implementation in this document.
-
-| Concept (Doc 25) | Implementation (Doc 26) | Notes |
-|-------------------|------------------------|-------|
-| **AgentTask primitive** | `agent_runs` table + `agent_messages` table | The single conceptual primitive maps to multiple tables for normalization (see "Data Model Mapping" below) |
-| **Orchestrator** | `AgentCoordinator` class in `coordinator/coordinator.py` | Python class, NOT a PydanticAI Agent |
-| **Router Agent** (LLM classification) | `LLMRouter` class using a PydanticAI Agent in `coordinator/router_llm.py` | Lightweight single-turn Agent for intent classification |
-| **Agent Registry** | `VerticalAgentRegistry` class in `coordinator/registry.py` | Loads from YAML config at startup |
-| **Tool Registry** | Tool definitions in agent YAML + `@agent.tool` decorators | PydanticAI handles tool schema generation from function signatures |
-| **Execution Engine (ReAct loop)** | PydanticAI's built-in `agent.run()` / `agent.run_stream()` | Framework handles the reasoning loop internally |
-| **Horizontal middleware** | `compose()` function in `horizontal/base.py` | Wraps every vertical agent: guardrails → memory → cost → output → agent.run() |
-| **Agent-as-tool delegation** | PydanticAI tool function calling child `agent.run(usage=ctx.usage)` | Cost propagation is automatic via `usage` parameter |
-| **Budget enforcement** | PydanticAI `UsageLimits` + cost tracking horizontal | `UsageLimits(request_limit, tool_calls_limit, total_tokens_limit)` per run |
-| **Kill switch** | API endpoint + task status update to `cancelled` | Coordinator checks status before each step |
-| **Approval gates** | `agent_pending_approvals` table + Redis polling | Execution pauses until approval received via API |
-| **Reasoning chain** | `reasoning` JSONB field on `agent_runs` | Populated from PydanticAI's message history |
-| **Memory (Phase 3)** | pgvector extension + Memory horizontal | Horizontal loads relevant memory before agent.run() |
-| **Feedback (Phase 4)** | `feedback` field on `agent_runs` + quality scores on memory entries | Links outcomes to memory for weighted retrieval |
-
-### Data Model Mapping
-
-The AgentTask primitive from 25 is a conceptual single entity. In the database, it maps to multiple tables for practical normalization:
-
-| AgentTask Field | Database Location | Why Separate |
-|-----------------|------------------|--------------|
-| id, status, agent_type, input, output, reasoning, error, cost, duration, model, timestamps | `agent_runs` table | Core execution record — one row per agent invocation |
-| parent_task_id | `agent_runs.parent_run_id` | Self-referential FK for delegation chains |
-| plan_id, sequence | `agent_runs.conversation_id` + ordering by `created_at` | Plans are conversations with ordered runs |
-| type | `agent_runs.status` + context (root run vs child) | Inferred from position in the hierarchy |
-| context (conversation history) | `agent_messages` table | Normalized message-level storage for history replay |
-| feedback | `agent_runs.feedback` (JSONB, null until Phase 4) | Added to runs table when Phase 4 is implemented |
-
-The `agent_conversations` table groups related runs into a session. A "plan" in 25's terms is a conversation with multiple agent_runs. The root run is the user's request; child runs are agent work and tool calls.
+| Term | Definition |
+|------|------------|
+| **Vertical agent** | A domain-specialist agent that handles a bounded subject area (e.g., report generation, data analysis). One vertical agent per domain. |
+| **Horizontal agent** | A cross-cutting concern that wraps vertical agent execution (e.g., cost tracking, guardrails, memory management). Not domain-aware. |
+| **Agent coordinator** | The PydanticAI Agent that receives all inbound requests, selects the appropriate vertical agent via tool delegation, and returns results. |
+| **Agent tool** | A function registered with a PydanticAI agent that the LLM may invoke. Tools call services; they do not call repositories or external APIs directly. |
+| **Agent context** | The runtime data passed into an agent run: conversation history, session state, dependencies (service instances, credentials). |
+| **Checkpoint** | A serialised snapshot of agent execution state written to PostgreSQL, enabling resume after interruption. |
+| **Human-in-the-loop (HITL) gate** | A pause point in agent execution that suspends the run, stores a pending approval record, and resumes only after an authorised actor approves via API. |
+| **Capability declaration** | A structured metadata object attached to each vertical agent that the coordinator uses to make routing decisions. |
 
 ---
 
-## Technology Decisions
+## Concept-to-Implementation Mapping
 
-### Primary Agent Runtime: PydanticAI
+| Concept (Doc 25) | Implementation (This Document) |
+|-------------------|-------------------------------|
+| **AgentTask primitive** | `agent_runs` table + `agent_messages` table |
+| **Orchestrator** | PydanticAI `Agent` with agent-delegation tools (Section 7) |
+| **Router Agent** | `Agent` with `output_type=RoutingDecision` (Section 7) |
+| **Agent Registry** | `VerticalAgentRegistry` class loading from YAML config |
+| **Tool Registry** | Tool definitions in agent YAML + `@agent.tool` decorators |
+| **Execution Engine (ReAct loop)** | PydanticAI's built-in `agent.run()` / `agent.run_stream()` |
+| **Horizontal middleware** | Python decorators wrapping agent run calls (Section 9) |
+| **Agent-as-tool delegation** | PydanticAI tool calling child `agent.run(usage=ctx.usage)` |
+| **Budget enforcement** | PydanticAI `UsageLimits` per run |
+| **Kill switch** | API endpoint + task status update to `cancelled` |
+| **Approval gates** | `agent_pending_approvals` table + Redis polling |
+| **Reasoning chain** | `reasoning` JSONB field on `agent_runs` |
+| **Memory (Phase 3)** | pgvector extension + Memory decorator |
+| **Feedback (Phase 4)** | `feedback` field on `agent_runs` + quality scores |
 
-**Package:** `pydantic-ai` (v1.61.0+, stable post-1.0 API)
+---
+
+## Technology Decision: PydanticAI
+
+**Package:** `pydantic-ai` (v1.61.0+, stable post-1.0 API, MIT license)
 
 PydanticAI is chosen because:
-- Built by the Pydantic/FastAPI team — dependency injection (`RunContext[DepsT]`) mirrors FastAPI's `Depends()` pattern
-- `output_type` accepts any Pydantic `BaseModel` — the same model validating API responses validates LLM output
-- Deterministic testing via `TestModel`, `FunctionModel`, and `ALLOW_MODEL_REQUESTS = False` — no other framework provides this
+- Built by the Pydantic/FastAPI team — `RunContext[DepsT]` mirrors FastAPI's `Depends()` pattern
+- `output_type` accepts any Pydantic `BaseModel` — same model validates API responses and LLM output
+- Deterministic testing via `TestModel`, `FunctionModel`, and `ALLOW_MODEL_REQUESTS = False`
 - Agent-as-tool delegation with automatic cost propagation (`usage=ctx.usage`)
-- `instructions` parameter is NOT retained in message history across handoffs — prevents prompt leakage between agents
+- `instructions` parameter is NOT retained in message history across handoffs — prevents prompt leakage
 - MIT license, model-agnostic (20+ providers), minimal abstraction tax
 - Tools are plain Python functions with type annotations — no custom DSL
 
-### Selective Use of LangGraph
+For the full framework evaluation, see **[Why PydanticAI is the right agent framework](../../98-research/Why%20PydanticAI%20is%20the%20right%20agent%20framework%20for%20your%20FastAPI%20stack.md)**.
 
-**Package:** `langgraph` (v1.0.x) — adopt only when a workflow requires:
-- Durable checkpointing across process restarts
-- `interrupt()`/resume for human approvals spanning hours or days
-- Complex branching state machines with cycles
+---
 
-Most agent interactions (80%+) stay in PydanticAI. LangGraph is added for specific workflows, not as the primary runtime. PydanticAI agents integrate as LangGraph nodes when needed.
+## Key PydanticAI Patterns
 
-### Vector Memory: pgvector
+This section defines the framework patterns used throughout the rest of the document.
 
-**Package:** PostgreSQL `pgvector` extension — used for Phase 3 (Remember) semantic memory.
+### Agent Definition
 
-pgvector is chosen over a separate vector database (Chroma, Pinecone) because:
-- Already running on the existing PostgreSQL instance — no new service to deploy
-- Same backup, monitoring, and maintenance story
-- Sufficient performance for initial memory scale
-- Can migrate to a dedicated vector DB later if scale demands
+```python
+from pydantic_ai import Agent, RunContext
+from pydantic import BaseModel
+from dataclasses import dataclass
+
+@dataclass
+class MyDeps:
+    db: AsyncSession
+    user_id: str
+
+class MyOutput(BaseModel):
+    summary: str
+    confidence: float
+
+agent = Agent(
+    'anthropic:claude-sonnet-4-20250514',   # model from config, not hardcoded
+    deps_type=MyDeps,
+    output_type=MyOutput,
+    instructions='You are a specialist agent.',
+)
+```
+
+The `Agent` is generic as `Agent[DepsT, OutputT]`. The `instructions` parameter is preferred over `system_prompt`.
+
+### Tool Definition
+
+```python
+@agent.tool
+async def fetch_data(ctx: RunContext[MyDeps], record_id: str) -> dict:
+    """Fetch a record by ID. Returns the record fields."""
+    return await ctx.deps.db.get(record_id)
+```
+
+Tools are plain async functions. `RunContext[DepsT]` provides typed access to dependencies. The framework generates JSON schemas from type annotations and extracts parameter descriptions from docstrings.
+
+### Agent-as-Tool Delegation
+
+The primary multi-agent pattern. A parent agent calls a child agent inside a tool function, with `usage=ctx.usage` propagating cost tracking automatically:
+
+```python
+coordinator = Agent('anthropic:claude-sonnet-4-20250514', instructions='Route to specialists.')
+billing_agent = Agent('anthropic:claude-haiku-4.5', output_type=BillingResponse)
+
+@coordinator.tool
+async def handle_billing(ctx: RunContext[CoordinatorDeps], query: str) -> str:
+    """Delegate billing questions to the billing specialist."""
+    result = await billing_agent.run(query, deps=ctx.deps.billing_deps, usage=ctx.usage)
+    return result.output.model_dump_json()
+```
+
+The child agent's cost is included in the parent's usage tracking. No manual cost aggregation needed.
+
+### Budget Enforcement
+
+```python
+from pydantic_ai import UsageLimits
+
+result = await agent.run(
+    user_message,
+    deps=deps,
+    usage_limits=UsageLimits(
+        request_limit=10,         # max LLM calls per run
+        tool_calls_limit=25,      # max tool invocations per run
+        total_tokens_limit=50000, # max tokens per run
+    ),
+)
+```
+
+When limits are exceeded, PydanticAI raises `UsageLimitExceeded`. No custom budget checking needed.
+
+### Dynamic System Prompts
+
+```python
+@agent.instructions
+async def add_context(ctx: RunContext[MyDeps]) -> str:
+    """Dynamically add user context to the system prompt."""
+    user = await ctx.deps.db.get_user(ctx.deps.user_id)
+    return f"Current user: {user.name}, role: {user.role}"
+```
+
+### Dynamic Tool Filtering
+
+```python
+from pydantic_ai.tools import ToolDefinition
+
+async def filter_by_role(
+    ctx: RunContext[MyDeps], tool_defs: list[ToolDefinition]
+) -> list[ToolDefinition]:
+    """Hide tools the current user is not authorized to use."""
+    allowed = TOOL_PERMISSIONS.get(ctx.deps.user_role, set())
+    return [td for td in tool_defs if td.name in allowed]
+
+secured_agent = Agent('openai:gpt-4o', deps_type=MyDeps, prepare_tools=filter_by_role)
+```
+
+### Run Methods
+
+| Method | Use Case |
+|--------|----------|
+| `agent.run()` | Standard async execution, returns complete result |
+| `agent.run_stream()` | Streaming response (SSE, WebSocket) |
+| `agent.iter()` | Node-level iteration for fine-grained control |
+| `agent.run_sync()` | Synchronous execution (testing, scripts only) |
 
 ---
 
@@ -110,38 +202,23 @@ Logic belongs in `modules/backend/services/` if it operates on domain data witho
 
 ### Vertical Agents (Domain Specialists)
 
-A vertical agent is a PydanticAI `Agent` instance scoped to a single domain. It maps to the "Specialist" tier in 25-agentic-architecture.md. Each vertical agent owns:
-- Its system prompt (loaded from Markdown file)
-- Its tool set (scoped to its domain's services)
-- Its output schema (a Pydantic `BaseModel`)
-- Its capability declaration (used by the coordinator for routing)
+A vertical agent is a PydanticAI `Agent` instance scoped to a single domain. It maps to the "Specialist" tier in 25-agentic-architecture.md. Each vertical agent owns its system prompt, tool set, output schema, and capability declaration.
 
 One file per vertical agent. One vertical agent per domain.
 
-### Horizontal Agents (Middleware)
+### Horizontal Agents (Middleware Decorators)
 
-A horizontal agent is an async callable that wraps a vertical agent's execution. It does not select domains. It does not call LLMs directly. It intercepts the execution lifecycle: before the run, after the run, or both.
+A horizontal agent is a Python decorator that wraps a vertical agent's execution. It does not select domains. It does not call LLMs directly. It intercepts the execution lifecycle: before the run, after the run, or both.
 
-The composition chain runs in fixed order for every agent execution:
+The composition order for every agent execution:
 
 ```
-guardrails → memory → cost_tracking → output_format → vertical_agent.run()
+guardrails → memory → cost_tracking → output_format → agent.run()
 ```
-
-| Horizontal | Before Run | After Run | Failure Behavior |
-|-----------|-----------|----------|-----------------|
-| Guardrails | Block unsafe/injection input | Validate output safety | Raise exception — abort, no LLM call made |
-| Memory | Load short-term (Redis) + long-term (PostgreSQL) context | Save conversation to both stores | Log error, continue with empty history |
-| Cost Tracking | — | Record tokens, compute cost, check budgets | Log error, continue — do not abort |
-| Output Format | — | Validate and normalize output | Log error, return raw output |
 
 ### Agent Coordinator
 
-The coordinator maps to the "Orchestrator" in 25-agentic-architecture.md. It is the single entry point for all agent requests. It is NOT a PydanticAI agent — it is a Python class that:
-1. Receives requests from any entry point (FastAPI, Taskiq, Redis Streams, Telegram)
-2. Routes to a vertical agent using hybrid routing (rules first, LLM fallback)
-3. Wraps the selected vertical agent in the horizontal composition chain
-4. Executes and returns the result
+The coordinator is a PydanticAI `Agent` that serves as the entry point for all agent requests. It delegates to vertical agents via tool functions (agent-as-tool pattern), with automatic cost propagation via `usage=ctx.usage`. When rule-based routing matches, the coordinator agent is bypassed entirely for cost savings.
 
 ---
 
@@ -153,22 +230,20 @@ modules/
 │   ├── __init__.py
 │   ├── coordinator/
 │   │   ├── __init__.py
-│   │   ├── coordinator.py          # AgentCoordinator class
+│   │   ├── coordinator.py          # Coordinator Agent + handle() function
 │   │   ├── registry.py             # VerticalAgentRegistry
 │   │   ├── router_rule.py          # Rule-based routing logic
-│   │   ├── router_llm.py           # LLM-based intent classification
 │   │   └── models.py               # CoordinatorRequest, CoordinatorResponse
 │   ├── vertical/
 │   │   ├── __init__.py
-│   │   ├── base.py                 # VerticalAgentProtocol, AgentCapability
+│   │   ├── base.py                 # AgentCapability dataclass
 │   │   └── {agent_name}.py         # One file per vertical agent
 │   ├── horizontal/
 │   │   ├── __init__.py
-│   │   ├── base.py                 # HorizontalAgentProtocol, compose()
-│   │   ├── cost_tracking.py
-│   │   ├── guardrails.py
-│   │   ├── memory.py
-│   │   └── output_format.py
+│   │   ├── cost_tracking.py        # Cost tracking decorator
+│   │   ├── guardrails.py           # Input/output guardrails decorator
+│   │   ├── memory.py               # Short/long-term memory decorator
+│   │   └── output_format.py        # Output normalization decorator
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   └── {agent_name}/
@@ -178,6 +253,7 @@ modules/
 │   │       ├── system.md           # System prompt (Markdown)
 │   │       └── examples.md         # Few-shot examples
 │   ├── deps/
+│   │   ├── __init__.py
 │   │   └── {agent_name}.py         # Deps dataclass per agent
 │   ├── models.py                   # SQLAlchemy models
 │   ├── repository.py               # Data access layer
@@ -206,7 +282,7 @@ tests/
 | Artifact | Convention | Example |
 |----------|-----------|---------|
 | Vertical agent | `{agent_name}.py` (snake_case) | `report_agent.py` |
-| Horizontal agent | `{concern}.py` | `cost_tracking.py` |
+| Horizontal | `{concern}.py` | `cost_tracking.py` |
 | Tool file | `{tool_group}.py` under `tools/{agent_name}/` | `tools/report_agent/fetch.py` |
 | Deps dataclass | `{agent_name}.py` under `deps/` | `deps/report_agent.py` |
 | System prompt | `prompts/{agent_name}/system.md` | `prompts/report_agent/system.md` |
@@ -215,28 +291,223 @@ tests/
 
 ---
 
+## Coordinator Pattern
+
+### Hybrid Routing
+
+Deterministic rules handle obvious cases cheaply. The PydanticAI coordinator agent handles ambiguous queries via tool delegation.
+
+```python
+from pydantic_ai import Agent, RunContext, UsageLimits
+from modules.agents.coordinator.models import CoordinatorRequest, CoordinatorResponse
+from modules.agents.coordinator.registry import VerticalAgentRegistry
+from modules.agents.coordinator.router_rule import RuleBasedRouter
+from modules.backend.core.config import get_app_config
+from modules.backend.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class CoordinatorDeps:
+    registry: VerticalAgentRegistry
+    request: CoordinatorRequest
+
+
+def _build_coordinator_agent(config: dict, registry: VerticalAgentRegistry) -> Agent:
+    """Build the coordinator agent with delegation tools for each registered vertical."""
+    caps = "\n".join(f"- {c.agent_name}: {c.description}" for c in registry.all_capabilities())
+    prompt = f"Route user requests to the appropriate specialist agent.\nAvailable agents:\n{caps}"
+
+    coordinator = Agent(
+        config["routing"]["llm_model"],
+        deps_type=CoordinatorDeps,
+        output_type=CoordinatorResponse,
+        instructions=prompt,
+    )
+
+    for capability in registry.all_capabilities():
+        agent_name = capability.agent_name
+        vertical = registry.get(agent_name)
+
+        @coordinator.tool(name=f"delegate_to_{agent_name}")
+        async def _delegate(ctx: RunContext[CoordinatorDeps], query: str, _v=vertical, _n=agent_name) -> str:
+            result = await _v.run(query, usage=ctx.usage)
+            return result.output.model_dump_json()
+
+    return coordinator
+
+
+async def handle(request: CoordinatorRequest) -> CoordinatorResponse:
+    """Single entry point for all agent requests."""
+    config = get_app_config().agents_coordinator
+    registry = get_registry()
+    rule_router = RuleBasedRouter(registry.all_capabilities())
+
+    agent_name = rule_router.route(request)
+
+    if agent_name is not None and registry.has(agent_name):
+        logger.info("coordinator.routed", agent_name=agent_name, routing_reason="rule")
+        vertical = registry.get(agent_name)
+        return await vertical.run(request.user_input, usage_limits=_get_limits(config))
+
+    logger.info("coordinator.routing", routing_reason="llm_fallback")
+    coordinator = _build_coordinator_agent(config, registry)
+    result = await coordinator.run(
+        request.user_input,
+        deps=CoordinatorDeps(registry=registry, request=request),
+        usage_limits=_get_limits(config),
+    )
+    return result.output
+
+
+def _get_limits(config: dict) -> UsageLimits:
+    limits = config["limits"]
+    return UsageLimits(
+        request_limit=limits["max_requests_per_task"],
+        tool_calls_limit=limits["max_tool_calls_per_task"],
+        total_tokens_limit=limits["max_tokens_per_task"],
+    )
+```
+
+### Rule-Based Router
+
+```python
+from modules.agents.coordinator.models import CoordinatorRequest
+from modules.agents.vertical.base import AgentCapability
+
+
+class RuleBasedRouter:
+    def __init__(self, capabilities: list[AgentCapability]) -> None:
+        self._capabilities = capabilities
+
+    def route(self, request: CoordinatorRequest) -> str | None:
+        """Return agent_name if a rule matches, else None (triggers LLM routing)."""
+        text = request.user_input.lower()
+        for cap in self._capabilities:
+            if any(kw in text for kw in cap.keywords):
+                return cap.agent_name
+        return None
+```
+
+### Loop Prevention
+
+Four complementary layers prevent runaway delegation:
+
+1. **UsageLimits** — PydanticAI built-in: `request_limit`, `tool_calls_limit`, `total_tokens_limit` per run
+2. **Routing depth counter** — `_depth` incremented on recursive `handle()` calls
+3. **Visited-agent set** — prevents cycles in delegation chains
+4. **asyncio timeouts** — hard wall-clock backstop on every operation
+
+### Entry Points
+
+The coordinator exposes a single async function: `handle(request: CoordinatorRequest) -> CoordinatorResponse`. All entry points construct a `CoordinatorRequest` and call it.
+
+**FastAPI:**
+
+```python
+@router.post("/chat")
+async def chat(payload: ChatPayload) -> ChatResponse:
+    request = CoordinatorRequest(
+        user_input=payload.message,
+        session_id=payload.session_id,
+        user_id=payload.user_id,
+        entry_point=EntryPoint.HTTP,
+    )
+    result = await handle(request)
+    return ChatResponse(output=result.output, conversation_id=result.conversation_id)
+```
+
+**Taskiq (background):**
+
+```python
+@broker.task
+async def run_agent_task(task_id: str, user_input: str, session_id: str, user_id: str) -> None:
+    request = CoordinatorRequest(
+        user_input=user_input,
+        session_id=UUID(session_id),
+        user_id=user_id,
+        entry_point=EntryPoint.TASKIQ,
+    )
+    result = await handle(request)
+    redis = get_redis()
+    ttl = get_app_config().agents_coordinator["redis_ttl"]["result"]
+    await redis.setex(f"agent:result:{task_id}", ttl, json.dumps({"output": str(result.output)}))
+```
+
+**Telegram (aiogram v3):**
+
+```python
+from aiogram import Router
+from aiogram.filters import Command
+from aiogram.types import Message
+from uuid import uuid5, NAMESPACE_DNS
+
+router = Router(name="agent")
+
+@router.message(Command("ask"))
+async def handle_ask(message: Message) -> None:
+    user_id = str(message.from_user.id)
+    request = CoordinatorRequest(
+        user_input=message.text.removeprefix("/ask "),
+        session_id=uuid5(NAMESPACE_DNS, user_id),
+        user_id=user_id,
+        entry_point=EntryPoint.TELEGRAM,
+    )
+    result = await handle(request)
+    await message.answer(str(result.output))
+```
+
+**Redis Streams (event-driven):**
+
+```python
+import asyncio
+import json
+from redis.asyncio import Redis
+from uuid import UUID
+
+async def consume_agent_stream(redis: Redis, stream_key: str) -> None:
+    """Long-running consumer for event-driven agent requests."""
+    last_id = "$"
+    while True:
+        messages = await redis.xread({stream_key: last_id}, block=1000, count=10)
+        for _, entries in messages:
+            for entry_id, fields in entries:
+                data = {k.decode(): v.decode() for k, v in fields.items()}
+                request = CoordinatorRequest(
+                    user_input=data["user_input"],
+                    session_id=UUID(data["session_id"]),
+                    user_id=data["user_id"],
+                    entry_point=EntryPoint.REDIS_STREAM,
+                )
+                asyncio.create_task(handle(request))
+                last_id = entry_id
+```
+
+Start the consumer as a Taskiq task that runs indefinitely, or as a dedicated process entry point.
+
+---
+
 ## Vertical Agent Pattern
 
 ### Capability Declaration
 
 ```python
-# modules/agents/vertical/base.py
+from dataclasses import dataclass
 
 @dataclass
 class AgentCapability:
     agent_name: str
-    description: str          # Used by LLM router as routing context
+    description: str          # Used by coordinator agent as routing context
     keywords: list[str]       # Used by rule router for keyword matching
     enabled: bool = True
 ```
 
 ### Dependency Injection
 
-Each vertical agent defines a `@dataclass` for its dependencies. Dependencies are instantiated by the coordinator from the FastAPI DI container and passed at run time.
+Each vertical agent defines a `@dataclass` for its dependencies. Dependencies are instantiated from the FastAPI DI container and passed at run time.
 
 ```python
-# modules/agents/deps/report_agent.py
-
 @dataclass
 class ReportAgentDeps:
     report_service: ReportService
@@ -245,237 +516,319 @@ class ReportAgentDeps:
     session_id: str
 ```
 
-### Agent Implementation
+### Implementation
 
 ```python
-# modules/agents/vertical/report_agent.py
-
-from pydantic_ai import Agent, RunContext
+from pathlib import Path
 from pydantic import BaseModel
+from pydantic_ai import Agent, RunContext
 
 _SYSTEM_PROMPT = (Path(__file__).parent.parent / "prompts" / "report_agent" / "system.md").read_text()
+
 
 class ReportOutput(BaseModel):
     summary: str
     report_url: str | None = None
-    delegate_to: str | None = None
+
 
 _agent: Agent[ReportAgentDeps, ReportOutput] = Agent(
-    model="",  # Set from YAML config at registration
+    model="",  # set from YAML config at registration time
     deps_type=ReportAgentDeps,
     output_type=ReportOutput,
     instructions=_SYSTEM_PROMPT,
 )
 
+
 @_agent.tool
 async def fetch_report_data(ctx: RunContext[ReportAgentDeps], report_id: str) -> dict:
     """Fetch structured data for a given report ID."""
     return await ctx.deps.report_service.get_report_data(report_id)
+
+
+@_agent.tool
+async def get_user_permissions(ctx: RunContext[ReportAgentDeps]) -> list[str]:
+    """Get the list of report types the current user can access."""
+    return await ctx.deps.user_service.get_permissions(ctx.deps.user_id)
 ```
 
 **Tools are thin adapters.** They contain one call to a service method and the type coercion required to match the LLM schema. No business logic in tools.
 
-### Agent-as-Tool Delegation
-
-For tiered delegation (25-agentic-architecture.md, Phase 5), a parent agent calls a child agent inside a tool function. PydanticAI's `usage=ctx.usage` propagates cost tracking automatically:
-
-```python
-coordinator = Agent('anthropic:claude-opus-4', instructions='Route to specialists.')
-search_worker = Agent('anthropic:claude-haiku-4.5', output_type=SearchResponse)
-
-@coordinator.tool
-async def delegate_search(ctx: RunContext[None], query: str) -> str:
-    result = await search_worker.run(query, usage=ctx.usage)
-    return result.output.model_dump_json()
-```
-
-The child agent's cost is automatically included in the parent's usage tracking.
-
-### Dynamic Tool Filtering
-
-PydanticAI's `prepare_tools` enables runtime tool filtering — tools hidden from the LLM based on user role or context:
-
-```python
-async def filter_by_role(ctx: RunContext[AgentDeps], tool_defs: list[ToolDefinition]) -> list[ToolDefinition]:
-    allowed = TOOL_PERMISSIONS.get(ctx.deps.user_role, set())
-    return [td for td in tool_defs if td.name in allowed]
-
-secured_agent = Agent('openai:gpt-4o', deps_type=AgentDeps, prepare_tools=filter_by_role)
-```
-
----
-
-## Coordinator Pattern
-
-### Hybrid Routing
-
-Deterministic rules handle obvious cases cheaply. LLM classification is fallback for ambiguous queries.
-
-```python
-# modules/agents/coordinator/coordinator.py
-
-class AgentCoordinator:
-    async def handle(self, request: CoordinatorRequest, _depth: int = 0) -> CoordinatorResponse:
-        if _depth >= MAX_ROUTING_DEPTH:
-            raise RuntimeError(f"Routing depth exceeded {MAX_ROUTING_DEPTH}")
-
-        # Try rule-based routing first (free, instant)
-        agent_name = self._rule_router.route(request)
-
-        # Fall back to LLM routing (costs tokens, adds latency)
-        if agent_name is None:
-            decision = await self._llm_router.route(request.user_input)
-            agent_name = decision.agent_name
-
-        # Fall back to default agent if routing fails
-        if not self._registry.has(agent_name):
-            agent_name = self._fallback
-
-        vertical = self._registry.get(agent_name)
-        wrapped = compose(vertical)  # applies horizontal middleware chain
-        return await wrapped(request, agent_name)
-```
-
-### Loop Prevention
-
-Four complementary layers:
-1. **UsageLimits** — PydanticAI built-in: `request_limit`, `tool_calls_limit`, `total_tokens_limit`
-2. **Routing depth counter** — `_depth` incremented on each recursive `coordinator.handle()` call
-3. **Visited-agent set** — prevents cycles in delegation chains
-4. **asyncio timeouts** — hard wall-clock backstop on every operation
-
-### Entry Points
-
-The coordinator exposes a single async method: `handle(request: CoordinatorRequest) -> CoordinatorResponse`. All entry points construct a `CoordinatorRequest` and call it:
-
-| Entry Point | Integration |
-|------------|-------------|
-| FastAPI | `POST /api/v1/agents/chat` → construct request → `coordinator.handle()` |
-| Taskiq | Background task → construct request → `coordinator.handle()` → store result in Redis |
-| Redis Streams | Stream consumer → construct request → `coordinator.handle()` |
-| Telegram | Bot handler → construct request → `coordinator.handle()` → reply to user |
+**Anti-patterns:**
+- Do not call repositories from tools. Tools call services only.
+- Do not store service instances as module-level globals. Inject via deps.
+- Do not hardcode the model name in agent files. Model comes from YAML config.
 
 ---
 
 ## Horizontal Middleware Pattern
 
-### Composition
+### Decorator-Based Composition
+
+Horizontal concerns are Python decorators that wrap vertical agent run calls. Every agent passes through the full chain — no exceptions.
 
 ```python
-# modules/agents/horizontal/base.py
+import functools
+import time
+from modules.backend.core.logging import get_logger
 
-def compose(vertical: VerticalAgentProtocol) -> AgentRunFn:
-    """
-    Wrap a vertical agent in the full horizontal composition chain.
-    Order: guardrails → memory → cost_tracking → output_format → vertical.run
-    """
-    horizontals = [
-        GuardrailsHorizontal(),
-        MemoryHorizontal(),
-        CostTrackingHorizontal(),
-        OutputFormatHorizontal(),
-    ]
-    # Build nested chain: each horizontal calls next, innermost calls vertical
-    ...
+logger = get_logger(__name__)
+
+
+def with_guardrails(func):
+    """Block unsafe input before any LLM call is made."""
+    @functools.wraps(func)
+    async def wrapper(query: str, *args, **kwargs):
+        _check_input(query)
+        result = await func(query, *args, **kwargs)
+        return result
+    return wrapper
+
+
+def with_cost_tracking(func):
+    """Record token usage, compute cost, check budgets after each run."""
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        start = time.monotonic()
+        result = await func(*args, **kwargs)
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        usage = result.usage()
+        cost_usd = _compute_cost(usage, result)
+        logger.info(
+            "agent.cost",
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cost_usd=round(cost_usd, 6),
+            duration_ms=elapsed_ms,
+        )
+        return result
+    return wrapper
+
+
+def with_memory(redis, memory_service):
+    """Load context before run, save results after run."""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(query: str, *args, session_id=None, **kwargs):
+            history = await _load_session(redis, session_id)
+            kwargs["message_history"] = history
+            result = await func(query, *args, **kwargs)
+            await _save_session(redis, memory_service, session_id, result)
+            return result
+        return wrapper
+    return decorator
 ```
 
-**Every agent passes through the full chain. No exceptions.** This ensures all agents are observable, cost-tracked, safe, and consistently formatted. Skipping horizontal composition for "simple" agents is an anti-pattern.
+### Applying Decorators to Agent Runs
 
-### Guardrails Horizontal
+```python
+@with_guardrails
+@with_memory(redis, memory_service)
+@with_cost_tracking
+async def run_report_agent(query: str, deps: ReportAgentDeps, **kwargs):
+    return await _agent.run(query, deps=deps, **kwargs)
+```
 
-Runs BEFORE the LLM call. Blocks prompt injection patterns, enforces input length limits. If blocked, no LLM call is made and no cost is incurred.
+### Failure Behavior
 
-### Memory Horizontal
-
-Runs BEFORE (load context) and AFTER (save results). Short-term memory via Redis (session-scoped, TTL-based). Long-term memory via PostgreSQL (persistent, queryable). Phase 3 adds pgvector for semantic retrieval.
-
-### Cost Tracking Horizontal
-
-Runs AFTER the LLM call. Records token usage, computes cost, writes to both structlog and PostgreSQL. Checks budget limits. Does not abort on write failure.
+| Horizontal | Failure Behavior |
+|-----------|-----------------|
+| Guardrails | Raise exception — abort, no LLM call made |
+| Memory (load) | Log error, continue with empty history |
+| Memory (save) | Log error, continue — output already returned |
+| Cost Tracking | Log error, continue — do not abort on write failure |
+| Output Format | Log error, return raw output |
 
 ---
 
 ## Database Schema
 
-### Core Tables
+### SQLAlchemy Models
 
-```sql
-CREATE TABLE agent_conversations (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     VARCHAR(255) NOT NULL,
-    session_id  UUID NOT NULL,
-    created_at  TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC'),
-    updated_at  TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')
-);
+```python
+import uuid
+from sqlalchemy import String, Text, Integer, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
+from modules.backend.models.base import Base
+from modules.backend.core.utils import utc_now
 
-CREATE TABLE agent_messages (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    conversation_id UUID NOT NULL REFERENCES agent_conversations(id),
-    agent_name      VARCHAR(100) NOT NULL,
-    role            VARCHAR(20) NOT NULL,
-    content         TEXT NOT NULL,
-    input_tokens    INTEGER DEFAULT 0,
-    output_tokens   INTEGER DEFAULT 0,
-    cost_usd        NUMERIC(10,6) DEFAULT 0,
-    model_name      VARCHAR(100),
-    created_at      TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')
-);
 
-CREATE TABLE agent_runs (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    conversation_id UUID NOT NULL REFERENCES agent_conversations(id),
-    parent_run_id   UUID REFERENCES agent_runs(id),
-    agent_name      VARCHAR(100) NOT NULL,
-    status          VARCHAR(20) NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending','running','awaiting_approval','completed','failed','cancelled')),
-    input           JSONB,
-    output          JSONB,
-    reasoning       JSONB,
-    feedback        JSONB,                              -- Phase 4: outcome evaluation (null until then)
-    error           TEXT,
-    token_input     INTEGER DEFAULT 0,                  -- Maps to AgentTask.token_input
-    token_output    INTEGER DEFAULT 0,                  -- Maps to AgentTask.token_output
-    cost_usd        NUMERIC(10,6) DEFAULT 0,            -- Maps to AgentTask.cost
-    model_name      VARCHAR(100),                       -- Maps to AgentTask.model_used
-    prompt_version  VARCHAR(50),                        -- Maps to AgentTask.prompt_version
-    duration_ms     INTEGER,                            -- Maps to AgentTask.duration_ms
-    started_at      TIMESTAMP,
-    completed_at    TIMESTAMP,
-    created_at      TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')
-);
+class AgentConversation(Base):
+    __tablename__ = "agent_conversations"
 
-CREATE TABLE agent_checkpoints (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    conversation_id UUID NOT NULL REFERENCES agent_conversations(id),
-    agent_name      VARCHAR(100) NOT NULL,
-    state           JSONB NOT NULL,
-    is_complete     BOOLEAN DEFAULT FALSE,
-    created_at      TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')
-);
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
 
-CREATE TABLE agent_pending_approvals (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    conversation_id UUID NOT NULL,
-    agent_name      VARCHAR(100) NOT NULL,
-    action          JSONB NOT NULL,
-    status          VARCHAR(20) DEFAULT 'pending',
-    requested_by    VARCHAR(255) NOT NULL,
-    reviewed_by     VARCHAR(255),
-    created_at      TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC'),
-    resolved_at     TIMESTAMP
-);
+    messages: Mapped[list["AgentMessage"]] = relationship("AgentMessage", back_populates="conversation")
+    runs: Mapped[list["AgentRun"]] = relationship("AgentRun", back_populates="conversation")
+
+
+class AgentMessage(Base):
+    __tablename__ = "agent_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_conversations.id"), nullable=False)
+    agent_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    model_name: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+    conversation: Mapped[AgentConversation] = relationship("AgentConversation", back_populates="messages")
+
+
+class AgentRun(Base):
+    """Core execution record — one row per agent invocation. Maps to AgentTask primitive."""
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_conversations.id"), nullable=False)
+    parent_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent_runs.id"))
+    agent_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    input: Mapped[dict | None] = mapped_column(JSONB)
+    output: Mapped[dict | None] = mapped_column(JSONB)
+    reasoning: Mapped[dict | None] = mapped_column(JSONB)
+    feedback: Mapped[dict | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    token_input: Mapped[int] = mapped_column(Integer, default=0)
+    token_output: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    model_name: Mapped[str | None] = mapped_column(String(100))
+    prompt_version: Mapped[str | None] = mapped_column(String(50))
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    started_at: Mapped[datetime | None] = mapped_column()
+    completed_at: Mapped[datetime | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+    conversation: Mapped[AgentConversation] = relationship("AgentConversation", back_populates="runs")
+
+
+class AgentPendingApproval(Base):
+    __tablename__ = "agent_pending_approvals"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    agent_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    resolved_at: Mapped[datetime | None] = mapped_column()
 ```
 
-The `parent_run_id` self-referential FK on `agent_runs` traces the full delegation chain — coordinator → specialist → worker — enabling cost attribution and debugging per delegation path. This maps to the AgentTask parent/child hierarchy from 25-agentic-architecture.md.
+The `parent_run_id` self-referential FK on `agent_runs` traces the full delegation chain (coordinator -> specialist -> worker), enabling cost attribution and debugging per delegation path.
 
 ### Redis Key Patterns
 
-| Key Pattern | Type | TTL | Purpose |
-|------------|------|-----|---------|
-| `agent:session:{session_id}` | JSON string | 3600s | Short-term conversation history |
-| `agent:approval:{approval_id}` | JSON string | 86400s | Pending HITL approval state |
-| `agent:lock:{conversation_id}` | string | 30s | Distributed lock (prevent concurrent runs) |
-| `agent:result:{task_id}` | JSON string | 3600s | Async task result storage |
+All TTL values come from `config/agents/coordinator.yaml` under `redis_ttl`.
+
+| Key Pattern | Type | TTL Config Key | Purpose |
+|------------|------|----------------|---------|
+| `agent:session:{session_id}` | JSON string | `redis_ttl.session` | Short-term conversation history |
+| `agent:approval:{approval_id}` | JSON string | `redis_ttl.approval` | Pending HITL approval state |
+| `agent:lock:{conversation_id}` | string | `redis_ttl.lock` | Distributed lock (prevent concurrent runs) |
+| `agent:result:{task_id}` | JSON string | `redis_ttl.result` | Async task result storage |
+
+### Idempotency and Checkpoint/Resume
+
+Write a checkpoint to `agent_checkpoints` before and after every tool call. On resume, load the latest incomplete checkpoint and replay from that state. Use the `conversation_id` as the idempotency key — a second request with the same `conversation_id` and identical input returns the stored result without re-running the agent.
+
+```python
+async def write_checkpoint(
+    session: AsyncSession,
+    conversation_id: uuid.UUID,
+    agent_name: str,
+    state: dict,
+) -> None:
+    """Persist execution state for resume after interruption."""
+    from modules.agents.models import AgentCheckpoint
+
+    checkpoint = AgentCheckpoint(
+        conversation_id=conversation_id,
+        agent_name=agent_name,
+        state=state,
+        is_complete=False,
+    )
+    session.add(checkpoint)
+    await session.commit()
+```
+
+Add an `AgentCheckpoint` model alongside the other models in the Database Schema section:
+
+```python
+class AgentCheckpoint(Base):
+    __tablename__ = "agent_checkpoints"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_conversations.id"), nullable=False)
+    agent_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    state: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    is_complete: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+```
+
+---
+
+## Execution Patterns
+
+### Synchronous (HTTP)
+
+Standard request-response. Use for interactions with latency under 30 seconds.
+
+```
+POST /api/v1/agents/chat → handle(request) → agent.run() → return JSON
+```
+
+### Asynchronous (Taskiq)
+
+For long-running agent tasks. Returns immediately with a task ID.
+
+```
+POST /api/v1/agents/chat/async → enqueue run_agent_task → return {"task_id": "..."}
+GET /api/v1/agents/results/{task_id} → read from Redis → return result or 202
+```
+
+### Streaming (SSE)
+
+Use PydanticAI's `run_stream()` for token-by-token delivery:
+
+```python
+from fastapi.responses import StreamingResponse
+from pydantic_ai.messages import TextPartDelta
+
+@router.post("/chat/stream")
+async def chat_stream(payload: ChatPayload) -> StreamingResponse:
+    async def generate():
+        async with _agent.run_stream(payload.message, deps=deps) as streamed:
+            async for event in streamed.stream_events():
+                if isinstance(event, TextPartDelta):
+                    yield f"data: {event.delta}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+```
+
+### Scheduled (Taskiq Cron)
+
+```python
+@broker.task
+async def scheduled_report_generation() -> None:
+    request = CoordinatorRequest(
+        user_input="Generate daily summary report",
+        session_id=SYSTEM_SESSION_ID,
+        user_id="system",
+        entry_point=EntryPoint.TASKIQ,
+    )
+    await handle(request)
+```
 
 ---
 
@@ -485,11 +838,24 @@ The `parent_run_id` self-referential FK on `agent_runs` traces the full delegati
 
 ```yaml
 # config/agents/report_agent.yaml
+# =============================================================================
+# Available options:
+#   agent_name      - Unique agent identifier (string)
+#   description     - Agent description for routing (string)
+#   enabled         - Enable/disable without code deployment (boolean)
+#   model           - LLM model identifier (string, provider:model format)
+#   max_budget_usd  - Maximum cost per task in USD (decimal)
+#   keywords        - Keywords for rule-based routing (list of strings)
+#   tools           - Registered tool names (list of strings)
+#   max_input_length - Maximum input character count (integer)
+# =============================================================================
+
 agent_name: report_agent
 description: "Generates, retrieves, and summarises reports"
 enabled: true
 model: anthropic:claude-sonnet-4-20250514
 max_budget_usd: 0.50
+max_input_length: 32000
 keywords:
   - report
   - generate report
@@ -504,6 +870,34 @@ tools:
 
 ```yaml
 # config/agents/coordinator.yaml
+# =============================================================================
+# Available options:
+#   routing           - Routing configuration (object)
+#     strategy        - Routing strategy (string: rule|llm|hybrid)
+#     llm_model       - Model for LLM-based routing (string)
+#     fallback_agent  - Default agent when routing fails (string)
+#     max_routing_depth - Maximum delegation depth (integer)
+#   limits            - Budget and safety limits (object)
+#     max_requests_per_task    - Max LLM calls per task (integer)
+#     max_tool_calls_per_task  - Max tool invocations per task (integer)
+#     max_tokens_per_task      - Max tokens per task (integer)
+#     max_cost_per_plan        - Max USD per plan (decimal)
+#     max_cost_per_user_daily  - Max USD per user per day (decimal)
+#     task_timeout_seconds     - Wall-clock timeout per task (integer)
+#     plan_timeout_seconds     - Wall-clock timeout per plan (integer)
+#   redis_ttl         - Redis key TTLs in seconds (object)
+#     session         - Session history TTL (integer)
+#     approval        - Pending approval TTL (integer)
+#     lock            - Distributed lock TTL (integer)
+#     result          - Async result TTL (integer)
+#   guardrails        - Input validation settings (object)
+#     max_input_length - Maximum input character count (integer)
+#     injection_patterns - Regex patterns to block (list of strings)
+#   approval          - HITL approval settings (object)
+#     poll_interval_seconds - Polling interval (integer)
+#     timeout_seconds       - Max wait for approval (integer)
+# =============================================================================
+
 routing:
   strategy: hybrid
   llm_model: anthropic:claude-haiku-4.5
@@ -511,11 +905,31 @@ routing:
   max_routing_depth: 3
 
 limits:
-  max_cost_per_task: 1.00
+  max_requests_per_task: 10
+  max_tool_calls_per_task: 25
+  max_tokens_per_task: 50000
   max_cost_per_plan: 10.00
   max_cost_per_user_daily: 50.00
   task_timeout_seconds: 300
   plan_timeout_seconds: 1800
+
+redis_ttl:
+  session: 3600
+  approval: 86400
+  lock: 30
+  result: 3600
+
+guardrails:
+  max_input_length: 32000
+  injection_patterns:
+    - "ignore (all |previous |prior )?instructions"
+    - "you are now"
+    - "system prompt:"
+    - "disregard (your |all )?previous"
+
+approval:
+  poll_interval_seconds: 2
+  timeout_seconds: 300
 ```
 
 ### Feature Flags
@@ -531,22 +945,50 @@ Set `enabled: false` in any agent YAML to disable it without code deployment. Th
 ```python
 # tests/conftest.py
 from pydantic_ai import models
-models.ALLOW_MODEL_REQUESTS = False  # Any test that calls a real LLM fails immediately
+models.ALLOW_MODEL_REQUESTS = False
 ```
+
+Any test that accidentally calls a real LLM fails immediately. This is a CI/CD guardrail that prevents cost leaks.
 
 ### Unit Testing with TestModel
 
 `TestModel` generates deterministic, schema-valid responses without any LLM. It calls all registered tools to verify they work:
 
 ```python
+import pytest
+from unittest.mock import AsyncMock
 from pydantic_ai.models.test import TestModel
+from pydantic_ai import capture_run_messages
+from modules.agents.vertical.report_agent import _agent, ReportOutput
+from modules.agents.deps.report_agent import ReportAgentDeps
+
+
+@pytest.fixture
+def mock_deps() -> ReportAgentDeps:
+    report_svc = AsyncMock()
+    report_svc.get_report_data.return_value = {"title": "Q1 Summary", "rows": 42}
+    user_svc = AsyncMock()
+    user_svc.get_permissions.return_value = ["view_reports"]
+    return ReportAgentDeps(
+        report_service=report_svc, user_service=user_svc,
+        user_id="user_123", session_id="sess_abc",
+    )
+
 
 @pytest.mark.asyncio
-async def test_report_agent_output_schema(mock_deps):
+async def test_report_agent_output_schema(mock_deps: ReportAgentDeps) -> None:
     with _agent.override(model=TestModel()):
         result = await _agent.run("Summarise all reports", deps=mock_deps)
     assert isinstance(result.output, ReportOutput)
     mock_deps.report_service.get_report_data.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_report_agent_tool_calls(mock_deps: ReportAgentDeps) -> None:
+    with _agent.override(model=TestModel()):
+        with capture_run_messages() as messages:
+            await _agent.run("Fetch report R-42", deps=mock_deps)
+    assert any(hasattr(m, "parts") for m in messages)
 ```
 
 ### Scripted Testing with FunctionModel
@@ -555,23 +997,28 @@ async def test_report_agent_output_schema(mock_deps):
 
 ```python
 from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+
 
 def mock_routing(messages, info):
     user_msg = messages[0].parts[-1].content.lower()
-    if 'billing' in user_msg:
-        return ModelResponse(parts=[ToolCallPart('handle_billing', {'query': user_msg})])
-    return ModelResponse(parts=[TextPart('How can I help?')])
+    if "billing" in user_msg:
+        return ModelResponse(parts=[ToolCallPart("handle_billing", {"query": user_msg})])
+    return ModelResponse(parts=[TextPart("How can I help?")])
 
+
+@pytest.mark.asyncio
 async def test_coordinator_routes_billing():
     with coordinator.override(model=FunctionModel(mock_routing)):
-        result = await coordinator.run('I have a billing question')
+        result = await coordinator.run("I have a billing question")
+    assert "billing" in str(result.output).lower()
 ```
 
 ### Integration Testing
 
 ```python
 @pytest.mark.asyncio
-async def test_chat_endpoint(client: AsyncClient):
+async def test_chat_endpoint(client: AsyncClient) -> None:
     with report_agent.override(model=TestModel()):
         response = await client.post(
             "/api/v1/agents/chat",
@@ -581,14 +1028,14 @@ async def test_chat_endpoint(client: AsyncClient):
     assert "output" in response.json()
 ```
 
-### Agent Testing Pyramid
+### Testing Pyramid
 
 | Layer | Purpose | Tooling | When |
 |-------|---------|---------|------|
 | Deterministic | Unit tests with TestModel/FunctionModel | pytest + PydanticAI test models | Every commit (CI) |
-| Record/Replay | Captured real LLM sessions replayed deterministically | VCR fixtures | Every commit (CI) |
-| Probabilistic | Benchmark suites measuring success rates over multiple runs | pydantic-evals | On-demand |
-| Judgment | LLM-as-judge with rubrics and majority voting | Custom evaluation | On-demand |
+| Record/Replay | Captured real LLM sessions replayed | VCR fixtures | Every commit (CI) |
+| Probabilistic | Benchmark suites measuring success rates | pydantic-evals | On-demand |
+| Judgment | LLM-as-judge with rubrics | Custom evaluation | On-demand |
 
 ---
 
@@ -596,9 +1043,11 @@ async def test_chat_endpoint(client: AsyncClient):
 
 ### structlog Integration
 
-Bind agent context at the coordinator level using `structlog.contextvars`. All downstream log calls automatically include these fields:
+Bind agent context at the coordinator level:
 
 ```python
+import structlog.contextvars
+
 structlog.contextvars.bind_contextvars(
     conversation_id=str(request.conversation_id),
     session_id=str(request.session_id),
@@ -607,6 +1056,8 @@ structlog.contextvars.bind_contextvars(
     agent_name=agent_name,
 )
 ```
+
+All downstream log calls automatically include these fields.
 
 ### What to Log at Each Layer
 
@@ -623,11 +1074,83 @@ structlog.contextvars.bind_contextvars(
 | Tool | `agent.tool.call` | tool_name, agent_name |
 | Tool | `agent.tool.result` | tool_name, duration_ms, success |
 
-Agent logs are written to `data/logs/agents.jsonl` per 12-observability.md.
+Agent logs are written to `data/logs/agents.jsonl` per **12-observability.md**.
 
-### OpenTelemetry via Logfire
+---
 
-PydanticAI integrates with Logfire (Pydantic's OTel-based observability). Setting `instrument=True` on agents produces distributed traces spanning HTTP → coordinator → agent → tool → LLM.
+## Security
+
+### Human-in-the-Loop Approval Gates
+
+```python
+import asyncio
+import json
+import uuid
+from modules.backend.core.config import get_app_config
+
+
+async def request_approval(
+    redis,
+    session,
+    conversation_id: uuid.UUID,
+    agent_name: str,
+    action: dict,
+    requested_by: str,
+) -> bool:
+    """Pause execution and wait for human approval. Returns True if approved."""
+    config = get_app_config().agents_coordinator["approval"]
+    approval_id = uuid.uuid4()
+    ttl = get_app_config().agents_coordinator["redis_ttl"]["approval"]
+
+    pending = AgentPendingApproval(
+        id=approval_id,
+        conversation_id=conversation_id,
+        agent_name=agent_name,
+        action=action,
+        requested_by=requested_by,
+    )
+    session.add(pending)
+    await session.commit()
+
+    redis_key = f"agent:approval:{approval_id}"
+    await redis.setex(redis_key, ttl, json.dumps({"status": "pending"}))
+
+    elapsed = 0
+    while elapsed < config["timeout_seconds"]:
+        raw = await redis.get(redis_key)
+        if raw:
+            data = json.loads(raw)
+            if data["status"] == "approved":
+                return True
+            if data["status"] == "rejected":
+                return False
+        await asyncio.sleep(config["poll_interval_seconds"])
+        elapsed += config["poll_interval_seconds"]
+
+    return False
+```
+
+### Tool-Level Access Control
+
+Define allowed tools per agent in `config/agents/coordinator.yaml`:
+
+```yaml
+tool_access:
+  report_agent:
+    - fetch_report_data
+    - get_user_permissions
+  fallback_agent: []
+```
+
+The registry validates tool declarations against this allowlist at registration time.
+
+### Prompt Injection Mitigation
+
+- User input is always placed in the `user` role — never interpolated into the system prompt
+- Guardrails decorator pattern-matches for injection attempts before the LLM is invoked
+- Injection patterns are configured in YAML, not hardcoded
+- System prompts are loaded from static Markdown files at startup
+- The coordinator does not pass raw user input to the routing prompt
 
 ---
 
@@ -647,36 +1170,122 @@ PydanticAI integrates with Logfire (Pydantic's OTel-based observability). Settin
 
 ---
 
+## Adding a New Agent (Walkthrough)
+
+Adding `data_analysis_agent` from zero to working:
+
+**1. Create deps** — `modules/agents/deps/data_analysis_agent.py`:
+
+```python
+@dataclass
+class DataAnalysisAgentDeps:
+    dataset_service: DatasetService
+    user_service: UserService
+    user_id: str
+    session_id: str
+```
+
+**2. Create prompt** — `modules/agents/prompts/data_analysis_agent/system.md`:
+
+```markdown
+You are a data analysis agent. You help users explore, summarise, and interpret datasets.
+
+Rules:
+- Always explain what the data contains before interpreting it.
+- If a dataset does not exist, say so clearly. Do not fabricate values.
+- Return structured output using the DataAnalysisOutput schema.
+```
+
+**3. Create agent** — `modules/agents/vertical/data_analysis_agent.py`:
+
+```python
+from pydantic_ai import Agent, RunContext
+
+_SYSTEM_PROMPT = (Path(__file__).parent.parent / "prompts" / "data_analysis_agent" / "system.md").read_text()
+
+class DataAnalysisOutput(BaseModel):
+    summary: str
+    columns: list[str]
+    row_count: int
+    insights: list[str]
+
+_agent: Agent[DataAnalysisAgentDeps, DataAnalysisOutput] = Agent(
+    model="",
+    deps_type=DataAnalysisAgentDeps,
+    output_type=DataAnalysisOutput,
+    instructions=_SYSTEM_PROMPT,
+)
+
+@_agent.tool
+async def fetch_dataset(ctx: RunContext[DataAnalysisAgentDeps], dataset_id: str) -> dict:
+    """Fetch a dataset by ID and return its schema and a sample of rows."""
+    return await ctx.deps.dataset_service.get_dataset(dataset_id)
+```
+
+**4. Create config** — `config/agents/data_analysis_agent.yaml`:
+
+```yaml
+agent_name: data_analysis_agent
+description: "Analyses datasets, computes statistics, and surfaces insights"
+enabled: true
+model: anthropic:claude-sonnet-4-20250514
+max_budget_usd: 1.00
+max_input_length: 32000
+keywords:
+  - analyse
+  - analysis
+  - dataset
+  - statistics
+  - data
+tools:
+  - fetch_dataset
+  - get_column_stats
+```
+
+**5. Register** — add to `modules/agents/startup.py` registration loop.
+
+**6. Write tests** — `tests/agents/vertical/test_data_analysis_agent.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_data_analysis_output_schema(mock_deps) -> None:
+    with _agent.override(model=TestModel()):
+        result = await _agent.run("Analyse dataset DS-99", deps=mock_deps)
+    assert isinstance(result.output, DataAnalysisOutput)
+    mock_deps.dataset_service.get_dataset.assert_awaited()
+```
+
+**7. Write integration test** — `tests/agents/integration/test_data_analysis_agent_flow.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_data_analysis_end_to_end(client: AsyncClient) -> None:
+    with data_agent.override(model=TestModel()):
+        response = await client.post(
+            "/api/v1/agents/chat",
+            json={"message": "Analyse dataset DS-99", "session_id": "...", "user_id": "test"},
+        )
+    assert response.status_code == 200
+```
+
+No coordinator changes needed. The registry auto-discovers the new agent's capabilities.
+
+---
+
 ## Anti-Patterns
 
 | Anti-pattern | Why prohibited |
 |-------------|---------------|
 | Tool calls a repository directly | Bypasses service layer; breaks separation of concerns |
 | Agent calls another agent without the coordinator | Bypasses routing, observability, loop prevention, and horizontal composition |
-| Vertical agent calls `coordinator.handle()` directly | Creates circular routing; use `delegate_to` in output instead |
 | Business logic inside tool functions | Tools are thin adapters; business logic in tools is untestable without agent runtime |
 | Model name hardcoded in agent file | Model is configuration; hardcoding prevents swaps without code changes |
 | User input interpolated into system prompt | Enables prompt injection; user input is always in the `user` role |
-| Skipping horizontal composition for "simple" agents | All agents need cost tracking, guardrails, and observability — no exceptions |
-| Storing conversation history in Redis indefinitely | Redis is ephemeral; use TTL and flush to PostgreSQL via Memory horizontal |
+| Skipping horizontal decorators for "simple" agents | All agents need cost tracking, guardrails, and observability — no exceptions |
+| Storing conversation history in Redis indefinitely | Redis is ephemeral; use TTL and flush to PostgreSQL via Memory decorator |
 | Running LLM-based routing for every request | Rules first, LLM fallback only — avoids unnecessary latency and cost |
 | Synchronous blocking calls in async agent tools | Blocks the event loop; use `asyncio.to_thread()` for CPU-bound work |
-
----
-
-## Adding a New Agent (Walkthrough)
-
-Adding `data_analysis_agent` from zero to working:
-
-1. **Create deps** — `modules/agents/deps/data_analysis_agent.py` — dataclass with injected services
-2. **Create prompt** — `modules/agents/prompts/data_analysis_agent/system.md` — Markdown system prompt
-3. **Create agent** — `modules/agents/vertical/data_analysis_agent.py` — PydanticAI Agent with tools
-4. **Create config** — `config/agents/data_analysis_agent.yaml` — model, keywords, tools, budget
-5. **Register** — add to `modules/agents/startup.py` registration loop
-6. **Write unit tests** — `tests/agents/vertical/test_data_analysis_agent.py` — TestModel, verify tools called
-7. **Write integration test** — `tests/agents/integration/test_data_analysis_agent_flow.py` — full HTTP flow
-
-No coordinator changes needed. The registry auto-discovers the new agent's capabilities. The hybrid router picks it up via keywords (rule) or description (LLM fallback).
+| Hardcoded TTLs, cost rates, or timeouts in code | All operational parameters come from YAML config |
 
 ---
 
@@ -690,9 +1299,9 @@ No coordinator changes needed. The registry auto-discovers the new agent's capab
 
 ### Phase 1: Execute
 - [ ] Create `modules/agents/` directory structure
-- [ ] Implement `AgentCoordinator` with hybrid routing
+- [ ] Implement coordinator Agent with hybrid routing
 - [ ] Implement `VerticalAgentRegistry`
-- [ ] Implement horizontal middleware chain (guardrails, cost, output format)
+- [ ] Implement horizontal decorators (guardrails, cost, output format)
 - [ ] Create database migration for agent tables
 - [ ] Create at least one vertical agent with tools
 - [ ] Create coordinator YAML config with limits
@@ -710,37 +1319,33 @@ No coordinator changes needed. The registry auto-discovers the new agent's capab
 - [ ] Implement shared context between plan steps
 - [ ] Implement context summarization (cheap model for compression)
 - [ ] Implement confidence signaling in routing decisions
-- [ ] Evaluate LangGraph for complex branching workflows
 - [ ] Write tests for multi-step plans
 
 ### Phase 3: Remember
 - [ ] Enable pgvector extension on PostgreSQL
-- [ ] Implement Memory horizontal with semantic retrieval
+- [ ] Implement Memory decorator with semantic retrieval
 - [ ] Implement memory lifecycle (access counts, archival, summarization)
 - [ ] Add memory inspection API endpoints
-- [ ] Write tests for memory retrieval accuracy
 
 ### Phase 4: Learn
 - [ ] Implement feedback collection (human ratings, automated checks)
 - [ ] Link feedback to memory entries with quality scores
 - [ ] Implement outcome-weighted retrieval
-- [ ] Implement performance tracking per agent type
 - [ ] Implement performance-based routing in coordinator
-- [ ] Write tests for feedback-weighted retrieval
 
 ### Phase 5: Autonomy
-- [ ] Implement agent proposal mechanism (agent suggests approach before executing)
-- [ ] Implement coordinator approval workflow for proposals
+- [ ] Implement agent proposal mechanism
 - [ ] Implement tiered delegation (agent-as-tool with `usage=ctx.usage`)
 - [ ] Implement trust levels per agent based on performance history
 - [ ] Implement self-evaluation agent
-- [ ] Write tests for proposal and delegation flows
 
 ---
 
 ## Related Documentation
 
-- [25-agentic-architecture.md](25-agentic-architecture.md) — **Conceptual architecture** (phases, principles, patterns, primitive, orchestrator evolution)
+- [25-agentic-architecture.md](25-agentic-architecture.md) — **Conceptual architecture** (phases, principles, patterns, primitive)
+- [Why PydanticAI is the right agent framework](../../98-research/Why%20PydanticAI%20is%20the%20right%20agent%20framework%20for%20your%20FastAPI%20stack.md) — Framework selection rationale
+- [Multi-agent systems on FastAPI](../../98-research/Multi-agent%20systems%20on%20FastAPI-%20a%20prescriptive%20reference%20architecture.md) — PydanticAI pattern reference
 - [08-llm-integration.md](08-llm-integration.md) — LLM provider interface, cost tracking, prompt management
 - [06-event-architecture.md](06-event-architecture.md) — Redis Streams for agent events
 - [19-background-tasks.md](19-background-tasks.md) — Taskiq for scheduled agent work

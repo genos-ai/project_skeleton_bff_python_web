@@ -1,11 +1,12 @@
 # Architecture Standards Overview
 
-*Version: 1.9.0*
+*Version: 2.0.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 2.0.0 (2026-02-19): Consolidated agentic docs — trimmed 25 to framework-agnostic concepts, rewrote 26 with PydanticAI-native patterns, archived research-25
 - 1.9.0 (2026-02-18): Split agentic docs into 25 (conceptual) and 26 (PydanticAI implementation)
 - 1.8.0 (2026-02-18): Added 25-agentic-architecture.md for agentic AI systems (agents, orchestration, tools, memory)
 - 1.7.0 (2026-02-18): Added 23-telegram-client-integration.md for Telegram Client API (MTProto)
@@ -77,8 +78,8 @@ Adopt these based on project requirements:
 | 11-typescript-coding-standards.md | Projects with TypeScript/React frontends |
 | 20-telegram-bot-integration.md | Projects with Telegram bot interfaces |
 | 23-telegram-client-integration.md | Projects needing channel scraping, history access (MTProto) |
-| 25-agentic-architecture.md | Agentic AI conceptual architecture (phases, principles, orchestration patterns) |
-| 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI (code patterns, testing, configuration) |
+| 25-agentic-architecture.md | Agentic AI conceptual architecture — framework-agnostic (phases, principles, orchestration patterns, AgentTask primitive) |
+| 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI (coordinator, agents, middleware, testing, database schema). Read 25 first. |
 
 ---
 
@@ -158,8 +159,8 @@ Architecture choices favor technologies with extensive AI training data. This ma
 | 11-typescript-coding-standards.md | Building React frontend |
 | 20-telegram-bot-integration.md | Building Telegram bot interface |
 | 23-telegram-client-integration.md | Need channel scraping, message history, or autonomous Telegram access |
-| 25-agentic-architecture.md | Agentic AI conceptual architecture (phases, principles, patterns) |
-| 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI |
+| 25-agentic-architecture.md | Agentic AI conceptual architecture — framework-agnostic (phases, principles, patterns) |
+| 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI. Read 25 first. |
 
 ### Module Dependencies
 

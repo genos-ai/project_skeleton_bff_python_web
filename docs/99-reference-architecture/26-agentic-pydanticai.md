@@ -185,6 +185,53 @@ secured_agent = Agent('openai:gpt-4o', deps_type=MyDeps, prepare_tools=filter_by
 | `agent.iter()` | Node-level iteration for fine-grained control |
 | `agent.run_sync()` | Synchronous execution (testing, scripts only) |
 
+### Message History Serialization
+
+PydanticAI message history is model-independent and fully serializable — this is the bridge between the agent runtime and your persistence layer:
+
+```python
+from pydantic_ai import Agent, ModelMessagesTypeAdapter
+
+agent = Agent('openai:gpt-4o', instructions='Be helpful.')
+
+result1 = await agent.run('What is the capital of France?')
+
+# Serialize for PostgreSQL storage
+json_bytes: bytes = result1.all_messages_json()
+
+# Restore from storage
+restored = ModelMessagesTypeAdapter.validate_json(json_bytes)
+
+# Continue conversation with history
+result2 = await agent.run('And Germany?', message_history=restored)
+```
+
+**History processors** trim context before sending to the LLM, keeping costs under control for long conversations:
+
+```python
+async def keep_recent(messages: list) -> list:
+    """Keep only the 10 most recent messages to manage context window."""
+    return messages[-10:]
+
+trimmed_agent = Agent('openai:gpt-4o', history_processors=[keep_recent])
+```
+
+### Output Validators
+
+Validate agent output before it is returned, with automatic retry on failure:
+
+```python
+@agent.output_validator
+async def validate_output(ctx: RunContext[MyDeps], result: MyOutput) -> MyOutput:
+    blocked = ["api_key", "password", "secret"]
+    for term in blocked:
+        if term.lower() in result.summary.lower():
+            raise ModelRetry("Response contains sensitive data. Regenerate without it.")
+    return result
+```
+
+If validation fails, PydanticAI sends the error back to the LLM and retries (up to `retries` count on the Agent).
+
 ---
 
 ## Agent Taxonomy

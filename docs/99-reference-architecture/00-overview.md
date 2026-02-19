@@ -1,13 +1,16 @@
 # Architecture Standards Overview
 
-*Version: 1.5.0*
+*Version: 1.9.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 1.9.0 (2026-02-18): Split agentic docs into 25 (conceptual) and 26 (PydanticAI implementation)
+- 1.8.0 (2026-02-18): Added 25-agentic-architecture.md for agentic AI systems (agents, orchestration, tools, memory)
+- 1.7.0 (2026-02-18): Added 23-telegram-client-integration.md for Telegram Client API (MTProto)
 - 1.6.0 (2026-02-18): Renumbered docs; moved deployment to 21-22; added 22-deployment-azure.md
-- 1.5.0 (2026-02-13): Added 20-telegram-integration.md for Telegram bot integration (aiogram v3)
+- 1.5.0 (2026-02-13): Added 20-telegram-bot-integration.md for Telegram bot integration (aiogram v3)
 - 1.4.0 (2025-01-29): Added data/ directory structure for file-based data storage
 - 1.3.0 (2025-01-29): Added Python environment management guide (uv vs conda) to 13-development-workflow.md
 - 1.2.0 (2025-01-29): Added 16-testing-standards.md with comprehensive testing guidance
@@ -21,6 +24,16 @@
 This document set defines architecture standards for software projects. It is prescriptive, not advisory. These are decisions, not options.
 
 When a technology choice no longer serves the standard, the standard is updated. Individual projects do not deviate; the standard evolves.
+
+---
+
+## Context
+
+Architectural decisions made inconsistently across projects create compounding costs — different teams reinvent the same solutions, onboarding takes longer, and AI code assistants produce inconsistent output without shared conventions. This document set exists to make those decisions once, document them prescriptively, and apply them uniformly.
+
+The structure separates Core standards (which apply to every project unconditionally) from Optional modules (which are adopted per project need). This lets teams skip irrelevant complexity — a backend-only API doesn't need frontend standards — while ensuring that when a capability is adopted, it follows the same patterns everywhere. Optional modules declare their dependencies explicitly, so adopting one module tells you exactly what else you need.
+
+Each document in this set is self-contained enough to be read independently, but they form a coherent whole. Core Principles (01) define the non-negotiable mandates. Backend Architecture (03) and Module Structure (04) define how code is organized. Coding Standards (10, 11), Testing (16), and Workflow (13) define how code is written and shipped. Security (17), Data Protection (18), and Authentication (09) define how it is secured. Deployment (21, 22) defines how it runs. Optional modules — Data Layer (05), Events (06), Frontend (07), LLM (08), Telegram (20, 23), Agentic AI (25) — extend the core when projects need those capabilities.
 
 ---
 
@@ -62,7 +75,10 @@ Adopt these based on project requirements:
 | 07-frontend-architecture.md | Projects with web frontends |
 | 08-llm-integration.md | Projects using LLM/AI capabilities |
 | 11-typescript-coding-standards.md | Projects with TypeScript/React frontends |
-| 20-telegram-integration.md | Projects with Telegram bot interfaces |
+| 20-telegram-bot-integration.md | Projects with Telegram bot interfaces |
+| 23-telegram-client-integration.md | Projects needing channel scraping, history access (MTProto) |
+| 25-agentic-architecture.md | Agentic AI conceptual architecture (phases, principles, orchestration patterns) |
+| 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI (code patterns, testing, configuration) |
 
 ---
 
@@ -86,6 +102,7 @@ Adopt these based on project requirements:
 ### Optional Scope (via modules)
 
 - AI/LLM integration
+- Agentic AI systems (autonomous agents, orchestration, tools, memory)
 - Real-time data streaming
 - Time-series data processing
 - Event-driven architectures
@@ -139,23 +156,37 @@ Architecture choices favor technologies with extensive AI training data. This ma
 | 07-frontend-architecture.md | Building a web UI |
 | 08-llm-integration.md | Integrating AI/LLM capabilities |
 | 11-typescript-coding-standards.md | Building React frontend |
-| 20-telegram-integration.md | Building Telegram bot interface |
+| 20-telegram-bot-integration.md | Building Telegram bot interface |
+| 23-telegram-client-integration.md | Need channel scraping, message history, or autonomous Telegram access |
+| 25-agentic-architecture.md | Agentic AI conceptual architecture (phases, principles, patterns) |
+| 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI |
 
 ### Module Dependencies
 
 ```
-                    ┌─────────────────────────┐
-                    │  08-llm-integration.md  │
-                    │       (optional)        │
-                    └───────────┬─────────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        │                       │                       │
-        ▼                       ▼                       ▼
-┌───────────────┐    ┌─────────────────────┐    ┌───────────────┐
-│ 07-frontend   │    │ 06-event-arch.md    │    │ 05-data-layer │
-│  (optional)   │    │    (optional)       │    │  (optional)   │
-└───────┬───────┘    └─────────────────────┘    └───────────────┘
+        ┌─────────────────────────────────┐
+        │  26-agentic-pydanticai.md       │
+        │  (optional, implementation)     │
+        └──────────────┬──────────────────┘
+                       │
+                       ▼
+        ┌─────────────────────────────────┐
+        │  25-agentic-architecture.md     │
+        │  (optional, conceptual)         │
+        └──────────┬──┬──────────────────┘
+                   │  │
+        ┌──────────┘  └──────────┐
+        │                        │
+        ▼                        ▼
+┌─────────────────────┐  ┌─────────────────────┐
+│ 08-llm-integration  │  │ 06-event-arch.md    │
+│    (optional)       │  │    (optional)       │
+└─────────────────────┘  └─────────────────────┘
+
+┌───────────────┐                       ┌───────────────┐
+│ 07-frontend   │                       │ 05-data-layer │
+│  (optional)   │                       │  (optional)   │
+└───────┬───────┘                       └───────────────┘
         │
         ▼
 ┌───────────────────────┐
@@ -165,6 +196,7 @@ Architecture choices favor technologies with extensive AI training data. This ma
 ```
 
 If adopting 07-frontend-architecture.md, also adopt 11-typescript-coding-standards.md.
+If adopting 26-agentic-pydanticai.md, also adopt 25-agentic-architecture.md, 08-llm-integration.md, and 06-event-architecture.md.
 
 ---
 

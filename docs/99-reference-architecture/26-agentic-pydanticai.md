@@ -71,7 +71,7 @@ PydanticAI is chosen because:
 - MIT license, model-agnostic (20+ providers), minimal abstraction tax
 - Tools are plain Python functions with type annotations — no custom DSL
 
-For the full framework evaluation, see **[Why PydanticAI is the right agent framework](../../98-research/08-Why%20PydanticAI%20is%20the%20right%20agent%20framework%20for%20your%20FastAPI%20stack.md)**.
+For the full framework evaluation, see **[Why PydanticAI is the right agent framework](../../98-research/04-Why%20PydanticAI%20is%20the%20right%20agent%20framework%20for%20your%20FastAPI%20stack.md)**.
 
 ---
 
@@ -1412,7 +1412,7 @@ No coordinator changes needed. The registry auto-discovers the new agent's capab
 
 - [25-agentic-architecture.md](25-agentic-architecture.md) — **Conceptual architecture** (phases, principles, patterns, primitive)
 - [Why PydanticAI is the right agent framework](../../98-research/08-Why%20PydanticAI%20is%20the%20right%20agent%20framework%20for%20your%20FastAPI%20stack.md) — Framework selection rationale
-- [Multi-agent systems on FastAPI](../../98-research/07-Multi-agent%20systems%20on%20FastAPI-%20a%20prescriptive%20reference%20architecture.md) — PydanticAI pattern reference
+- [Multi-agent systems on FastAPI](../../98-research/03-Multi-agent%20systems%20on%20FastAPI-%20a%20prescriptive%20reference%20architecture.md) — PydanticAI pattern reference
 - [08-llm-integration.md](08-llm-integration.md) — LLM provider interface, cost tracking, prompt management
 - [06-event-architecture.md](06-event-architecture.md) — Redis Streams for agent events
 - [19-background-tasks.md](19-background-tasks.md) — Taskiq for scheduled agent work

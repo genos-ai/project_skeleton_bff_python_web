@@ -126,3 +126,4 @@ Full standards in `docs/99-reference-architecture/`:
 | 19 | Background Tasks |
 | 25 | Agentic AI Architecture (conceptual) |
 | 26 | Agentic AI PydanticAI Implementation |
+| 27 | Agent-First Infrastructure (MCP, A2A, agent identity) |

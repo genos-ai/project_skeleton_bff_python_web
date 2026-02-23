@@ -23,6 +23,16 @@ For basic CRUD applications, PostgreSQL with SQLAlchemy (covered in 03-backend-a
 
 ---
 
+## Context
+
+Most projects start with PostgreSQL and SQLAlchemy for standard CRUD operations, and the backend architecture (03) already covers that baseline. This optional module exists for projects that outgrow basic relational storage — when they need time-series data, analytical queries across large datasets, advanced caching, or structured file storage.
+
+The design decision is to keep PostgreSQL as the single source of truth while adding specialized tools for specialized workloads: TimescaleDB (a PostgreSQL extension) for time-series data, DuckDB (embedded, zero-config) for analytical queries over Parquet files, and Redis for ephemeral caching. Each technology handles a specific data shape better than PostgreSQL alone, without introducing a separate database server or significant operational overhead.
+
+The file-based data section (`data/` directory) standardizes how projects handle datasets, exports, and cached artifacts — areas where ad-hoc approaches quickly create sprawling, undocumented file hierarchies. This module connects to module structure (04) through the rule that each module owns its tables, to observability (12) for data pipeline monitoring, and to background tasks (19) for scheduled data processing.
+
+---
+
 ## Core Database: PostgreSQL
 
 All projects use PostgreSQL as the primary relational database.

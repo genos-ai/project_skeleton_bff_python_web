@@ -16,6 +16,16 @@ This document defines coding standards for Python backend development. It covers
 
 ---
 
+## Context
+
+Coding standards exist because code is read far more often than it is written, and inconsistent style creates friction every time a developer (or an AI assistant) works with unfamiliar code. This document removes style decisions from individual developers by standardizing Python file organization, import conventions, configuration patterns, error handling, and tooling for all backend projects.
+
+The driving insight is that most Python code quality issues stem from a small set of recurring problems: relative imports that break when files move, hardcoded values scattered across modules, inconsistent logging that makes debugging impossible, and files that grow until they are unreadable. Each standard directly addresses one of these: absolute imports only, centralized configuration via Pydantic Settings with no hardcoded fallbacks, structured logging via `structlog`, and file size limits (target 300-400 lines, hard limit 500).
+
+Every CLI script must include `--verbose` and `--debug` flags because the cost of adding them later — during a production incident, when you need them most — is far higher than including them upfront. Timezone handling is standardized to naive UTC datetimes because mixing timezone-aware and timezone-naive objects is a persistent source of subtle bugs. These standards are enforced by the development workflow (13) through pre-commit hooks and CI checks, and complement the TypeScript standards (11) for frontend development.
+
+---
+
 ## File Organization
 
 ### Project Structure

@@ -17,6 +17,16 @@ This document defines the standard directory structure for new projects. All pro
 
 ---
 
+## Context
+
+The fastest way to slow down a development team is to let every project invent its own directory structure. Developers waste time figuring out where things go, AI assistants make inconsistent assumptions about file locations, and cross-project contributions require relearning the layout each time. This template ensures every project is navigable on first contact.
+
+The layout directly implements the patterns from multiple other standards: the layered backend architecture (03) maps to `api/`, `services/`, `repositories/`, `models/`; module structure (04) maps to the `modules/` directory; testing standards (16) map to the hybrid `tests/unit/`, `tests/integration/`, `tests/e2e/` layout; and configuration standards (10) map to `config/` with `.env` and YAML files.
+
+The key decision is that this structure applies from day one, even for small projects. The overhead of a few empty directories is negligible compared to the cost of restructuring a growing project later. The `.project_root` marker file enables reliable root detection from anywhere in the directory tree, which is used by configuration loading, logging setup, and test discovery.
+
+---
+
 ## Complete Project Structure
 
 ```
@@ -73,9 +83,10 @@ This document defines the standard directory structure for new projects. All pro
 │           ├── 17-security-standards.md
 │           ├── 18-data-protection.md
 │           ├── 19-background-tasks.md
-│           ├── 20-telegram-integration.md
+│           ├── 20-telegram-bot-integration.md
 │           ├── 21-deployment-bare-metal.md
-│           └── 22-deployment-azure.md
+│           ├── 22-deployment-azure.md
+│           └── 23-telegram-client-integration.md
 │
 ├── modules/
 │   ├── backend/

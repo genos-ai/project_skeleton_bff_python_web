@@ -22,6 +22,16 @@ For simple request-response applications, this module is not required.
 
 ---
 
+## Context
+
+Synchronous request-response works for most interactions, but some operations shouldn't block the caller: sending notifications after an order is placed, updating search indexes after content changes, broadcasting state changes to multiple consumers, or triggering background workflows. This module exists for projects that need to decouple producers from consumers.
+
+Redis Streams was chosen as the default because it provides reliable message delivery with consumer groups, is already present in most deployments (for caching and task queues via 19-background-tasks), and handles thousands of events per second — sufficient for the vast majority of projects. The upgrade path to NATS JetStream or Apache Kafka is defined but deferred until measurable scale requirements demand it.
+
+The key architectural pattern is the transactional outbox: when an event must reliably accompany a database write (e.g., "order placed" after inserting the order), both are written in the same database transaction, and a relay process then publishes the event. This eliminates the dual-write problem where the database write succeeds but the event publish fails, leaving the system in an inconsistent state. This module provides the communication backbone for inter-module events (04), real-time client updates (07), and is a required dependency for the agentic architecture (25).
+
+---
+
 ## Event-Driven Design
 
 ### When to Use Events

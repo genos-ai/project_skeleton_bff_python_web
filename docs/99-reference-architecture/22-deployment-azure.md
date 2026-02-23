@@ -10,9 +10,19 @@
 
 ---
 
-## Relationship to 14-Deployment
+## Context
 
-Document 14 defines deployment for self-hosted bare-metal infrastructure (Ubuntu + systemd + nginx). This document defines an alternative deployment target using Azure managed services. Projects choose one deployment model. Both follow the same application architecture — the backend code, service layer, and repository patterns are identical regardless of deployment target.
+For organizations that mandate Azure or want managed infrastructure, this module provides an alternative deployment model to bare metal (21). The application code is identical in both cases — the difference is entirely in the infrastructure layer.
+
+The deployment philosophy is "managed services first": Azure handles patching, high availability, backups, and scaling, while the team focuses exclusively on application code. Private endpoints keep all Azure-to-Azure traffic off the public internet, and managed identity eliminates credential management for internal service communication. This removes entire categories of operational work that bare-metal deployments must handle manually.
+
+The key constraint is no containers and no Azure Functions for API backends. App Service with native Python runtime provides the same direct execution model as bare metal, avoiding container orchestration complexity. Azure Functions are excluded because their timeout limits and cold start latency are incompatible with the API response time requirements defined in backend architecture (03). Deployment slots enable zero-downtime releases through slot swap, replacing the symlink-based release strategy used in bare metal. This document implements security standards (17) via Azure-native controls and integrates with background tasks (19) for worker deployment.
+
+---
+
+## Relationship to 21-Deployment
+
+Document 21 defines deployment for self-hosted bare-metal infrastructure (Ubuntu + systemd + nginx). This document defines an alternative deployment target using Azure managed services. Projects choose one deployment model. Both follow the same application architecture — the backend code, service layer, and repository patterns are identical regardless of deployment target.
 
 Choose this document when:
 - The hosting organisation mandates Azure
@@ -20,7 +30,7 @@ Choose this document when:
 - Integration with Entra ID, Azure OpenAI, or other Azure-native services is required
 - CI/CD runs through Azure DevOps
 
-Choose 14-Deployment (bare-metal) when:
+Choose 21-Deployment (bare-metal) when:
 - Full infrastructure control is required
 - Cost sensitivity favours fixed compute over consumption-based billing
 - Regulatory requirements prohibit public cloud
@@ -42,7 +52,7 @@ Rationale:
 
 ### No Containers
 
-Consistent with 14-Deployment: applications run directly on the platform runtime, not in containers. Azure App Service provides native Python support on Linux without Docker.
+Consistent with 21-Deployment: applications run directly on the platform runtime, not in containers. Azure App Service provides native Python support on Linux without Docker.
 
 Exception: If the project already requires containerisation for other reasons (multi-language polyglot, GPU workloads, sidecar patterns), use Azure Container Apps instead. Do not use AKS unless the organisation already operates an AKS cluster.
 

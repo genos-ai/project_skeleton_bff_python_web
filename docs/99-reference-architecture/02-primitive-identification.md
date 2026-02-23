@@ -18,6 +18,16 @@ Primitive Identification forces explicit declaration of the fundamental data typ
 
 ---
 
+## Context
+
+The problem is complexity explosion. When a system has one core data type (an Order, a Task, a Message), every new feature is an operation on that type and the system grows linearly. When a system has three competing types (Orders, Jobs, and Requests that all represent "work"), every new feature must handle all three, and the interactions between them grow quadratically.
+
+This decision must be made explicitly and early. Systems that skip this step don't avoid having a primitive — they end up with several unofficial ones, each created by a different developer solving a different problem. By the time the inconsistency is visible, it is embedded across the codebase and expensive to unify.
+
+This document forces the choice upfront: identify the single fundamental data type that flows through the entire system, give it a UUID, a lifecycle with clear states, and timestamps. Every module, every API, every storage layer is then designed around this type. The constraint feels restrictive initially, but it radically simplifies everything downstream — from API design (03) to module boundaries (04) to database schemas (05) to agentic task tracking (25).
+
+---
+
 ## What Is A Primitive?
 
 A primitive is the fundamental unit of data that flows through your entire system. Every module, every API, every storage layer should be designed around this single type.

@@ -18,6 +18,16 @@ This module is a dependency of **07-frontend-architecture.md** for web projects.
 
 ---
 
+## Context
+
+When the architecture includes a React web frontend (07-frontend-architecture), TypeScript coding standards become mandatory. This module exists because React's flexibility means two developers will structure the same application completely differently without shared conventions — different state management approaches, different component patterns, different file organization.
+
+The key design decision is strict separation of state concerns: TanStack Query owns server state (API responses, caching, refetching), Zustand owns client state (UI preferences, ephemeral UI data), and react-hook-form owns form state (validation, dirty tracking). Mixing these in a single store or using the wrong tool for each creates the complexity that makes React applications hard to maintain.
+
+File size limits are tighter than the backend (300 lines for components, 150 for hooks) because large React components are almost always doing too many things. Tailwind CSS is the only approved styling approach — no CSS modules, no styled-components, no inline styles — because a single styling system eliminates the "which approach do I use?" question and keeps AI code assistance consistent. This module complements the Python coding standards (10) for backend development.
+
+---
+
 ## Scope
 
 This document defines coding standards for React web frontends. It complements the Python Development Standards and Architecture Standards.

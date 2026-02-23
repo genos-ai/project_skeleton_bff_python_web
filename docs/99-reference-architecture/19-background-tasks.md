@@ -16,6 +16,16 @@ This document defines standards for background task processing and scheduled job
 
 ---
 
+## Context
+
+HTTP requests have a time budget. When an operation takes too long — sending emails, processing uploads, running reports, syncing with external services — it must move to a background task so the API response isn't delayed. Without a standard approach, projects end up with a mix of ad-hoc threads, cron jobs, and inline processing that is impossible to monitor or retry reliably.
+
+Taskiq with Redis was chosen because it is async-native (matching FastAPI), uses a single system for both on-demand tasks (triggered by API calls) and scheduled tasks (cron-based), supports full type hints and dependency injection, and can be tested without Redis by calling task functions directly. The key constraint is that all tasks must be idempotent — safe to execute multiple times — because at-least-once delivery means a task may be retried after a worker crash or timeout.
+
+The single-scheduler-instance rule (only one scheduler process runs, ever) prevents the duplicate execution problem that plagues cron-based systems. This document was extracted from backend architecture (03) into its own standard because background task patterns touch deployment (21, 22), observability (12), and integration modules like Telegram (20) — enough cross-cutting concerns to justify dedicated guidance.
+
+---
+
 ## Standard: Taskiq with Redis
 
 Background tasks use Taskiq with Redis as the message broker.

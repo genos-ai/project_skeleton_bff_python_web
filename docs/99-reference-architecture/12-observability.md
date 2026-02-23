@@ -11,6 +11,16 @@
 
 ---
 
+## Context
+
+When something breaks in production, the first question is always "what happened?" If the answer requires SSHing into a server and grepping unstructured log files, debugging takes hours instead of minutes. This document ensures that every application produces structured, queryable, correlated logs from day one — so that tracing a request from client to database to response is a single query, not an investigation.
+
+The core design is built around the `X-Request-ID` header: every request gets a unique identifier that propagates through all log entries, downstream calls, and the response. Combined with `X-Frontend-ID` (which identifies whether the request came from web, CLI, mobile, or Telegram), any production issue can be traced to its source and followed through the entire system. This is implemented in the skeleton code itself, not deferred to production infrastructure.
+
+The document separates skeleton features (structured logging with structlog, request context middleware, health check endpoints) from production deployment (Prometheus, Loki, Grafana). The skeleton ships with everything needed to produce good logs and health signals; the production stack is infrastructure that consumes them. Health endpoints (`/health`, `/health/ready`, `/health/detailed`) follow a standard pattern that integrates with both bare-metal (21) and Azure (22) deployment health probes, and feed into the security logging requirements defined in authentication (09) and security standards (17).
+
+---
+
 ## Overview
 
 This document defines observability standards for the skeleton and applications built from it.

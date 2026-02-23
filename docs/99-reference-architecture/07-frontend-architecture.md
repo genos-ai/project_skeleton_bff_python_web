@@ -22,6 +22,16 @@ If adopting web frontend, also adopt **11-typescript-coding-standards.md**.
 
 ---
 
+## Context
+
+The core architecture mandates that clients are stateless presentation layers (P2) with no business logic (P1). This module defines how to build those thin clients for two surfaces: web browsers (React) and command lines (Python Click). It exists because even thin clients need consistent patterns for state management, API communication, and error handling — without them, each project makes different choices and the frontend becomes the least predictable part of the stack.
+
+The web stack centers on React with Vite, TanStack Query for server state (caching, refetching, stale-while-revalidate), and Zustand for the minimal client-side state that remains (UI preferences, modal visibility). This separation was the key design decision — server state and client state have fundamentally different lifecycle and caching semantics, and mixing them in a single store is the most common source of frontend complexity.
+
+The CLI uses Python Click because it offers explicit parameter handling, is well-documented for AI-assisted development, and integrates naturally with the Python backend ecosystem. Both clients consume the same backend API, ensuring feature parity and a single source of truth for all business logic. This module requires TypeScript coding standards (11) for web projects and follows all API conventions defined in backend architecture (03).
+
+---
+
 ## Client Types
 
 ### Supported Clients

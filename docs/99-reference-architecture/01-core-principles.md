@@ -10,6 +10,16 @@
 
 ---
 
+## Context
+
+Every codebase accumulates implicit rules — assumptions baked into code that new team members discover only by reading hundreds of files or breaking something. This document makes those rules explicit and non-negotiable, so they are enforced by convention rather than discovered by accident.
+
+The architecture is backend-first by design. Business logic lives exclusively in the backend because splitting it across clients (web, CLI, mobile) creates divergent behavior, doubles validation effort, and makes bugs harder to trace. Clients are thin presentation layers that display what the backend provides. This single decision shapes everything else in these standards.
+
+The remaining principles address the failure modes that most commonly destroy codebases: implicit magic that nobody understands six months later (P4), silent failures that corrupt data without alerting anyone (P5), operations that can't be safely retried (P6), and hardcoded values scattered across files instead of centralized configuration (P7). Each principle exists because it prevents a specific, recurring class of production incident. These principles are the foundation — every other document in this set implements or reinforces them.
+
+---
+
 ## Mandatory Principles
 
 These principles are non-negotiable. All architectural decisions must align with them.

@@ -16,6 +16,16 @@ This document defines the error code structure and standard codes used by APIs. 
 
 ---
 
+## Context
+
+API consumers need to handle errors programmatically. A 400 status code tells a client that something was wrong with the request, but not what specifically — was it a missing field, an invalid format, a duplicate entry, or a business rule violation? Consistent, machine-readable error codes let clients implement proper error handling instead of parsing human-readable error messages.
+
+The error code structure uses the format `{CATEGORY}_{NOUN}_{STATE}` (e.g., `AUTH_TOKEN_EXPIRED`, `VAL_EMAIL_INVALID`, `RES_USER_NOT_FOUND`). The category immediately tells a developer which system is involved, the noun identifies the entity, and the state describes what went wrong. Every code maps to an HTTP status code, a human-readable message, and a recommended client action — so both humans and machines can act on the error.
+
+This is a registry, not just a specification. New error codes must be registered in this document before use, preventing duplicate or inconsistent codes across modules. The error response envelope (`success`, `data`, `error`, `metadata`) is the same format defined in backend architecture (03), ensuring every API response — success or failure — follows a predictable structure that all clients (07) can rely on.
+
+---
+
 ## Error Response Format
 
 All API errors return this structure:

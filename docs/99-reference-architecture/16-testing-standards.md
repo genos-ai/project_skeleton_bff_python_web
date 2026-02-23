@@ -16,6 +16,16 @@ This document defines testing standards for all projects. It covers test organiz
 
 ---
 
+## Context
+
+Tests are the safety net that enables confident refactoring, deployment, and onboarding. Without shared testing standards, projects end up with inconsistent test organization, fragile fixtures that break across test files, and coverage gaps in the most critical code paths.
+
+The hybrid test structure — organized by test type at the top level (`unit/`, `integration/`, `e2e/`) with source structure mirrored within each type — was chosen because it answers the two most common questions simultaneously: "what kind of test is this?" (top level) and "what code does it test?" (directory structure within). Fixtures follow a hierarchy with shared fixtures in root `conftest.py` and type-specific fixtures in each test type's `conftest.py`, preventing the fixture duplication that makes test suites brittle.
+
+Coverage targets are intentionally asymmetric: 100% for critical paths (authentication, payments, data integrity) and 80% for general business logic. This reflects the reality that not all code carries equal risk, and chasing 100% everywhere produces low-value tests that slow down development without improving safety. The testing standards integrate with CI/CD (13) to gate all merges on passing tests and with the project template (15) for directory layout.
+
+---
+
 ## Test Directory Structure
 
 ### Hybrid Approach

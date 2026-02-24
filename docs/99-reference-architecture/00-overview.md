@@ -1,11 +1,12 @@
 # Architecture Standards Overview
 
-*Version: 2.0.0*
+*Version: 2.2.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 2.2.0 (2026-02-24): Added 28-tui-architecture.md for interactive terminal interface (Textual)
 - 2.1.0 (2026-02-20): Added 27-agent-first-infrastructure.md for MCP, A2A, agent identity, intent APIs, agent-discoverable endpoints
 - 2.0.0 (2026-02-19): Consolidated agentic docs — trimmed 25 to framework-agnostic concepts, rewrote 26 with PydanticAI-native patterns, archived research-25
 - 1.9.0 (2026-02-18): Split agentic docs into 25 (conceptual) and 26 (PydanticAI implementation)
@@ -35,7 +36,7 @@ Architectural decisions made inconsistently across projects create compounding c
 
 The structure separates Core standards (which apply to every project unconditionally) from Optional modules (which are adopted per project need). This lets teams skip irrelevant complexity — a backend-only API doesn't need frontend standards — while ensuring that when a capability is adopted, it follows the same patterns everywhere. Optional modules declare their dependencies explicitly, so adopting one module tells you exactly what else you need.
 
-Each document in this set is self-contained enough to be read independently, but they form a coherent whole. Core Principles (01) define the non-negotiable mandates. Backend Architecture (03) and Module Structure (04) define how code is organized. Coding Standards (10, 11), Testing (16), and Workflow (13) define how code is written and shipped. Security (17), Data Protection (18), and Authentication (09) define how it is secured. Deployment (21, 22) defines how it runs. Optional modules — Data Layer (05), Events (06), Frontend (07), LLM (08), Telegram (20, 23), Agentic AI (25, 26), Agent-First Infrastructure (27) — extend the core when projects need those capabilities.
+Each document in this set is self-contained enough to be read independently, but they form a coherent whole. Core Principles (01) define the non-negotiable mandates. Backend Architecture (03) and Module Structure (04) define how code is organized. Coding Standards (10, 11), Testing (16), and Workflow (13) define how code is written and shipped. Security (17), Data Protection (18), and Authentication (09) define how it is secured. Deployment (21, 22) defines how it runs. Optional modules — Data Layer (05), Events (06), Frontend (07), LLM (08), Telegram (20, 23), Agentic AI (25, 26), Agent-First Infrastructure (27), TUI (28) — extend the core when projects need those capabilities.
 
 ---
 
@@ -82,6 +83,7 @@ Adopt these based on project requirements:
 | 25-agentic-architecture.md | Agentic AI conceptual architecture — framework-agnostic (phases, principles, orchestration patterns, AgentTask primitive) |
 | 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI (coordinator, agents, middleware, testing, database schema). Read 25 first. |
 | 27-agent-first-infrastructure.md | Agent-first infrastructure — MCP servers, A2A protocol, agent identity, intent APIs, agent-discoverable endpoints. Independent of 25/26. |
+| 28-tui-architecture.md | Terminal User Interface — interactive agent sessions, real-time monitoring, approvals, Textual + Textual Web |
 
 ---
 
@@ -91,6 +93,7 @@ Adopt these based on project requirements:
 
 - Python backend services with thin clients
 - Web frontends (React)
+- Terminal user interfaces (Textual)
 - Command-line interfaces
 - Data pipelines and analytics
 - General web applications
@@ -165,6 +168,7 @@ Architecture choices favor technologies with extensive AI training data. This ma
 | 25-agentic-architecture.md | Agentic AI conceptual architecture — framework-agnostic (phases, principles, patterns) |
 | 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI. Read 25 first. |
 | 27-agent-first-infrastructure.md | Exposing platform to external agents (MCP, A2A), agent identity, intent APIs |
+| 28-tui-architecture.md | Interactive terminal interface (Textual) for agent sessions, monitoring, approvals |
 
 ### Module Dependencies
 

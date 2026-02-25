@@ -1,4 +1,4 @@
-# BFF Python Web Application
+# BFF Python Platform Harness
 
 Backend-for-Frontend skeleton template with Python (FastAPI) backend and React (Vite) frontend.
 

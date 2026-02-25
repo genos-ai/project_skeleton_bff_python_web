@@ -1,8 +1,8 @@
 # =============================================================================
-# Health Agent Configuration
+# System Health Agent Configuration
 # =============================================================================
 # Available options:
-#   agent_name      - Unique agent identifier (string)
+#   agent_name      - Unique agent identifier (string, format: category.name.agent)
 #   description     - Agent description for routing (string)
 #   enabled         - Enable/disable without code deployment (boolean)
 #   model           - LLM model identifier (string, provider:model format)
@@ -11,7 +11,7 @@
 #   max_input_length - Maximum input character count (integer)
 # =============================================================================
 
-agent_name: health_agent
+agent_name: system.health.agent
 description: "Checks system health and provides diagnostic advice"
 enabled: true
 model: anthropic:claude-haiku-4-5-20251001

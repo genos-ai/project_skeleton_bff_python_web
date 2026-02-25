@@ -1,5 +1,5 @@
 """
-Health Agent.
+System Health Agent (system.health.agent).
 
 PydanticAI agent that checks system health and provides
 diagnostic advice in natural language. Uses the existing
@@ -7,7 +7,7 @@ health check functions from modules/backend/api/health.py
 as tools.
 
 Usage:
-    from modules.backend.agents.vertical.health_agent import run_health_agent
+    from modules.backend.agents.vertical.system.health.agent import run_health_agent
     result = await run_health_agent("How is the system doing?")
 """
 
@@ -48,7 +48,7 @@ class HealthCheckResult(BaseModel):
 def _load_agent_config() -> dict:
     """Load health agent configuration from YAML."""
     project_root = find_project_root()
-    config_path = project_root / "config" / "agents" / "health_agent.yaml"
+    config_path = project_root / "config" / "agents" / "system" / "health" / "agent.yaml"
 
     if not config_path.exists():
         raise FileNotFoundError(f"Agent config not found: {config_path}")

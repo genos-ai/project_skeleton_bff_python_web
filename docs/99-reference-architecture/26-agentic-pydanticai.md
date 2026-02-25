@@ -235,6 +235,99 @@ If validation fails, PydanticAI sends the error back to the LLM and retries (up 
 
 ---
 
+## Agent Naming Convention
+
+### Agent Identity Format
+
+Every agent has a globally unique identifier in the format `{category}.{name}.agent`:
+
+```
+system.health.agent
+code.qa.agent
+domain.billing.agent
+security.vulnerability.agent
+```
+
+The **category** identifies what the agent operates on. The **name** identifies the specific capability. The **`.agent`** suffix identifies the entity type. Both category and name use `snake_case`.
+
+The `.agent` suffix distinguishes agents from other entity types that may share the same `{category}.{name}` namespace in logs, databases, and search results:
+
+| Entity Type | Example | Suffix |
+|------------|---------|--------|
+| Agent | `code.qa.agent` | `.agent` |
+| Tool | `code.qa.tool` | `.tool` |
+| Skill (A2A) | `code.qa.skill` | `.skill` |
+
+### Categories
+
+Categories are a controlled vocabulary. Each answers "what does this agent act on?"
+
+| Category | Operates On | Examples |
+|----------|------------|---------|
+| `system` | The running platform and infrastructure | `system.health.agent`, `system.deploy.agent`, `system.monitor.agent` |
+| `code` | The source code and development process | `code.qa.agent`, `code.review.agent`, `code.docs.agent` |
+| `security` | Security boundaries and compliance | `security.audit.agent`, `security.vulnerability.agent` |
+| `data` | Data, datasets, and data pipelines | `data.quality.agent`, `data.etl.agent`, `data.archival.agent` |
+| `domain` | Business-specific logic (varies per deployment) | `domain.billing.agent`, `domain.reporting.agent` |
+| `comms` | Human communication and notifications | `comms.notify.agent`, `comms.digest.agent`, `comms.translation.agent` |
+
+All categories except `domain` are universal across deployments. `domain` is the only category whose agents change per project.
+
+New categories may be added to this table when an agent does not fit any existing category. Categories must not overlap — if two categories could both claim an agent, the category closest to what the agent **acts on** wins.
+
+### File and Directory Mapping
+
+The directory structure uses `{category}/{name}/` — each agent gets its own directory. All agent Python files are named `agent.py`. All agent config files are named `agent.yaml`. The identity comes from the directory path, not the filename:
+
+| Artifact | Path Pattern | Example |
+|----------|-------------|---------|
+| Agent config | `config/agents/{category}/{name}/agent.yaml` | `config/agents/system/health/agent.yaml` |
+| Agent code | `modules/backend/agents/vertical/{category}/{name}/agent.py` | `modules/backend/agents/vertical/system/health/agent.py` |
+| Agent tools | `modules/agents/tools/{category}/{name}/` | `modules/agents/tools/code/qa/` |
+| System prompt | `modules/agents/prompts/{category}/{name}/system.md` | `modules/agents/prompts/code/qa/system.md` |
+| Agent deps | `modules/agents/deps/{category}/{name}.py` | `modules/agents/deps/code/qa.py` |
+| Unit test | `tests/unit/backend/agents/test_{category}_{name}.py` | `test_code_qa.py` |
+
+The `agent_name` field in the YAML config file carries the full identifier including the `.agent` suffix:
+
+```yaml
+# config/agents/system/health/agent.yaml
+agent_name: system.health.agent
+```
+
+The Python import path mirrors the identity naturally:
+
+```python
+from modules.backend.agents.vertical.system.health.agent import run_health_agent
+from modules.backend.agents.vertical.code.qa.agent import run_qa_agent
+```
+
+### Registry Discovery
+
+The coordinator's registry loader walks `config/agents/` recursively for `agent.yaml` files (`**/agent.yaml`). The `agent_name` field inside each YAML file is the canonical identity — the directory structure is for human and AI organization.
+
+### CLI Usage
+
+Direct invocation uses the full dotted name:
+
+```bash
+python chat.py --agent system.health.agent --message "check everything"
+python chat.py --agent code.qa.agent --message "run compliance audit"
+```
+
+Keyword-based routing does not require knowing the agent name — the user says "check system health" and the coordinator routes based on keywords.
+
+The `--list-agents` output groups agents by category:
+
+```
+system:
+  system.health.agent   — Checks system health and provides diagnostic advice
+code:
+  code.qa.agent         — Audits codebase for compliance violations and fixes them
+```
+
+---
+
 ## Agent Taxonomy
 
 ### Service/Agent Boundary Rule
@@ -272,6 +365,8 @@ The coordinator is a PydanticAI `Agent` that serves as the entry point for all a
 
 ## Module Structure
 
+Agent names follow the `{category}.{name}` convention defined in "Agent Naming Convention" above. The category maps to a subdirectory in config, code, and tests.
+
 ```
 modules/
 ├── agents/
@@ -285,7 +380,21 @@ modules/
 │   ├── vertical/
 │   │   ├── __init__.py
 │   │   ├── base.py                 # AgentCapability dataclass
-│   │   └── {agent_name}.py         # One file per vertical agent
+│   │   ├── system/                 # system.* agents
+│   │   │   ├── __init__.py
+│   │   │   └── health/             # system.health.agent
+│   │   │       ├── __init__.py
+│   │   │       └── agent.py
+│   │   ├── code/                   # code.* agents
+│   │   │   ├── __init__.py
+│   │   │   └── qa/                 # code.qa.agent
+│   │   │       ├── __init__.py
+│   │   │       └── agent.py
+│   │   └── {category}/             # One subdir per category
+│   │       ├── __init__.py
+│   │       └── {name}/             # One subdir per agent
+│   │           ├── __init__.py
+│   │           └── agent.py        # Always named agent.py
 │   ├── horizontal/
 │   │   ├── __init__.py
 │   │   ├── cost_tracking.py        # Cost tracking decorator
@@ -294,15 +403,15 @@ modules/
 │   │   └── output_format.py        # Output normalization decorator
 │   ├── tools/
 │   │   ├── __init__.py
-│   │   └── {agent_name}/
+│   │   └── {category}.{name}/
 │   │       └── {tool_name}.py      # One file per tool group
 │   ├── prompts/
-│   │   └── {agent_name}/
+│   │   └── {category}.{name}/
 │   │       ├── system.md           # System prompt (Markdown)
 │   │       └── examples.md         # Few-shot examples
 │   ├── deps/
 │   │   ├── __init__.py
-│   │   └── {agent_name}.py         # Deps dataclass per agent
+│   │   └── {category}.{name}.py    # Deps dataclass per agent
 │   ├── models.py                   # SQLAlchemy models
 │   ├── repository.py               # Data access layer
 │   ├── schemas.py                  # Pydantic API schemas
@@ -312,30 +421,38 @@ modules/
 config/
 └── agents/
     ├── coordinator.yaml
-    └── {agent_name}.yaml           # One YAML per vertical agent
+    ├── system/                     # system.* agent configs
+    │   └── health/
+    │       └── agent.yaml          # agent_name: system.health.agent
+    ├── code/                       # code.* agent configs
+    │   └── qa/
+    │       └── agent.yaml          # agent_name: code.qa.agent
+    └── {category}/
+        └── {name}/
+            └── agent.yaml          # agent_name: {category}.{name}.agent
 tests/
 └── agents/
     ├── vertical/
-    │   └── test_{agent_name}.py
+    │   └── test_{category}_{name}.py
     ├── horizontal/
     │   └── test_{horizontal_name}.py
     ├── coordinator/
     │   └── test_coordinator.py
     └── integration/
-        └── test_{agent_name}_flow.py
+        └── test_{category}_{name}_flow.py
 ```
 
 ### File Naming Conventions
 
 | Artifact | Convention | Example |
 |----------|-----------|---------|
-| Vertical agent | `{agent_name}.py` (snake_case) | `report_agent.py` |
+| Vertical agent | `vertical/{category}/{name}/agent.py` | `vertical/system/health/agent.py` |
 | Horizontal | `{concern}.py` | `cost_tracking.py` |
-| Tool file | `{tool_group}.py` under `tools/{agent_name}/` | `tools/report_agent/fetch.py` |
-| Deps dataclass | `{agent_name}.py` under `deps/` | `deps/report_agent.py` |
-| System prompt | `prompts/{agent_name}/system.md` | `prompts/report_agent/system.md` |
-| Config | `config/agents/{agent_name}.yaml` | `config/agents/report_agent.yaml` |
-| Unit test | `tests/agents/vertical/test_{agent_name}.py` | `test_report_agent.py` |
+| Tool file | `{tool_group}.py` under `tools/{category}/{name}/` | `tools/domain/billing/fetch.py` |
+| Deps dataclass | `deps/{category}/{name}.py` | `deps/domain/billing.py` |
+| System prompt | `prompts/{category}/{name}/system.md` | `prompts/domain/billing/system.md` |
+| Config | `config/agents/{category}/{name}/agent.yaml` | `config/agents/domain/billing/agent.yaml` |
+| Unit test | `tests/agents/vertical/test_{category}_{name}.py` | `test_code_qa.py` |
 
 ---
 
@@ -963,11 +1080,13 @@ async def scheduled_report_generation() -> None:
 
 ### Agent YAML
 
+Agent names follow the `{category}.{name}` convention. The config file lives at `config/agents/{category}/{name}.yaml`.
+
 ```yaml
-# config/agents/report_agent.yaml
+# config/agents/domain/reporting/agent.yaml
 # =============================================================================
 # Available options:
-#   agent_name      - Unique agent identifier (string)
+#   agent_name      - Unique agent identifier (string, format: category.name)
 #   description     - Agent description for routing (string)
 #   enabled         - Enable/disable without code deployment (boolean)
 #   model           - LLM model identifier (string, provider:model format)
@@ -977,7 +1096,7 @@ async def scheduled_report_generation() -> None:
 #   max_input_length - Maximum input character count (integer)
 # =============================================================================
 
-agent_name: report_agent
+agent_name: domain.reporting.agent
 description: "Generates, retrieves, and summarises reports"
 enabled: true
 model: anthropic:claude-sonnet-4-20250514
@@ -1299,9 +1418,9 @@ The registry validates tool declarations against this allowlist at registration 
 
 ## Adding a New Agent (Walkthrough)
 
-Adding `data_analysis_agent` from zero to working:
+Adding `data.analysis` (a data-category agent) from zero to working:
 
-**1. Create deps** — `modules/agents/deps/data_analysis_agent.py`:
+**1. Create deps** — `modules/agents/deps/data/analysis.py`:
 
 ```python
 @dataclass
@@ -1312,7 +1431,7 @@ class DataAnalysisAgentDeps:
     session_id: str
 ```
 
-**2. Create prompt** — `modules/agents/prompts/data_analysis_agent/system.md`:
+**2. Create prompt** — `modules/agents/prompts/data/analysis/system.md`:
 
 ```markdown
 You are a data analysis agent. You help users explore, summarise, and interpret datasets.
@@ -1323,12 +1442,12 @@ Rules:
 - Return structured output using the DataAnalysisOutput schema.
 ```
 
-**3. Create agent** — `modules/agents/vertical/data_analysis_agent.py`:
+**3. Create agent** — `modules/agents/vertical/data/analysis/agent.py`:
 
 ```python
 from pydantic_ai import Agent, RunContext
 
-_SYSTEM_PROMPT = (Path(__file__).parent.parent / "prompts" / "data_analysis_agent" / "system.md").read_text()
+_SYSTEM_PROMPT = (Path(__file__).parent.parent.parent.parent / "prompts" / "data" / "analysis" / "system.md").read_text()
 
 class DataAnalysisOutput(BaseModel):
     summary: str
@@ -1349,10 +1468,16 @@ async def fetch_dataset(ctx: RunContext[DataAnalysisAgentDeps], dataset_id: str)
     return await ctx.deps.dataset_service.get_dataset(dataset_id)
 ```
 
-**4. Create config** — `config/agents/data_analysis_agent.yaml`:
+**4. Create config** — `config/agents/data/analysis/agent.yaml`:
 
 ```yaml
-agent_name: data_analysis_agent
+# =============================================================================
+# Available options:
+#   agent_name      - Unique agent identifier (string, format: category.name)
+#   ...
+# =============================================================================
+
+agent_name: data.analysis.agent
 description: "Analyses datasets, computes statistics, and surfaces insights"
 enabled: true
 model: anthropic:claude-sonnet-4-20250514
@@ -1371,7 +1496,7 @@ tools:
 
 **5. Register** — add to `modules/agents/startup.py` registration loop.
 
-**6. Write tests** — `tests/agents/vertical/test_data_analysis_agent.py`:
+**6. Write tests** — `tests/agents/vertical/test_data_analysis.py`:
 
 ```python
 @pytest.mark.asyncio
@@ -1382,7 +1507,7 @@ async def test_data_analysis_output_schema(mock_deps) -> None:
     mock_deps.dataset_service.get_dataset.assert_awaited()
 ```
 
-**7. Write integration test** — `tests/agents/integration/test_data_analysis_agent_flow.py`:
+**7. Write integration test** — `tests/agents/integration/test_data_analysis_flow.py`:
 
 ```python
 @pytest.mark.asyncio
@@ -1395,7 +1520,7 @@ async def test_data_analysis_end_to_end(client: AsyncClient) -> None:
     assert response.status_code == 200
 ```
 
-No coordinator changes needed. The registry auto-discovers the new agent's capabilities.
+No coordinator changes needed. The registry auto-discovers the new agent by scanning for `agent.yaml` files recursively under `config/agents/`.
 
 ---
 
@@ -1413,6 +1538,7 @@ No coordinator changes needed. The registry auto-discovers the new agent's capab
 | Running LLM-based routing for every request | Rules first, LLM fallback only — avoids unnecessary latency and cost |
 | Synchronous blocking calls in async agent tools | Blocks the event loop; use `asyncio.to_thread()` for CPU-bound work |
 | Hardcoded TTLs, cost rates, or timeouts in code | All operational parameters come from YAML config |
+| Agent name without category prefix or entity suffix (e.g., `health_agent`) | All agents use `{category}.{name}.agent` format (e.g., `system.health.agent`) — see "Agent Naming Convention" |
 
 ---
 

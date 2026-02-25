@@ -1,0 +1,101 @@
+# =============================================================================
+# QA Compliance Agent Configuration
+# =============================================================================
+# Available options:
+#   agent_name        - Unique agent identifier (string, format: category.name.agent)
+#   description       - Agent description for routing (string)
+#   enabled           - Enable/disable without code deployment (boolean)
+#   model             - LLM model identifier (string, provider:model format)
+#   keywords          - Keywords for rule-based routing (list of strings)
+#   tools             - Registered tool names (list of strings)
+#   max_input_length  - Maximum input character count (integer)
+#   file_size_limit   - Maximum Python file line count (integer)
+#   rules             - Compliance rules to check (list of objects)
+#     id              - Rule identifier (string)
+#     description     - Human-readable rule description (string)
+#     severity        - Rule severity: error, warning (string)
+#     enabled         - Enable/disable individual rules (boolean)
+#   exclusions        - Paths and patterns to exclude from scanning (object)
+#     paths           - File/directory paths to skip (list of strings)
+#     patterns        - Filename patterns to skip (list of strings)
+# =============================================================================
+
+agent_name: code.qa.agent
+description: "Audits the codebase for compliance violations and fixes them"
+enabled: true
+model: anthropic:claude-haiku-4-5-20251001
+max_input_length: 2000
+file_size_limit: 1000
+keywords:
+  - compliance
+  - qa
+  - audit
+  - violations
+  - check code
+  - code review
+  - rule check
+tools:
+  - scan_hardcoded_values
+  - scan_import_violations
+  - scan_datetime_violations
+  - scan_cli_options
+  - scan_file_sizes
+  - scan_config_files
+  - read_source_file
+  - list_python_files
+  - apply_fix
+  - run_tests
+
+rules:
+  - id: no_hardcoded_values
+    description: "Module-level numeric/string constants that should be in YAML config"
+    severity: error
+    enabled: true
+  - id: no_relative_imports
+    description: "Relative imports (from .foo) — use absolute imports only"
+    severity: error
+    enabled: true
+  - id: no_direct_logging
+    description: "Direct 'import logging' in modules/ — use centralized get_logger()"
+    severity: error
+    enabled: true
+  - id: no_datetime_now
+    description: "datetime.now() or datetime.utcnow() — use utc_now() from core.utils"
+    severity: error
+    enabled: true
+  - id: no_os_getenv_fallback
+    description: "os.getenv() or os.environ.get() with hardcoded fallback defaults"
+    severity: error
+    enabled: true
+  - id: cli_options_not_positional
+    description: "CLI scripts must use --options, not positional arguments"
+    severity: warning
+    enabled: true
+  - id: cli_verbose_debug
+    description: "All root CLI scripts must have --verbose and --debug options"
+    severity: warning
+    enabled: true
+  - id: file_size_limit
+    description: "Python files must not exceed configured line limit"
+    severity: warning
+    enabled: true
+  - id: yaml_header_comment
+    description: "YAML config files must have a commented list of options at the top"
+    severity: warning
+    enabled: true
+  - id: no_mocked_tests
+    description: "Tests using unittest.mock where real execution is feasible"
+    severity: warning
+    enabled: true
+
+exclusions:
+  paths:
+    - "scripts/"
+    - "docs/"
+    - ".venv/"
+    - "__pycache__/"
+    - ".git/"
+    - ".pytest_cache/"
+  patterns:
+    - "*.pyc"
+    - ".DS_Store"

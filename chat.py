@@ -11,7 +11,6 @@ Usage:
     python chat.py --message "check system health" --raw
     python chat.py --message "check system health" --verbose
     python chat.py --ping
-    python chat.py --message "continue analysis" --session-id abc123
     python chat.py --port 8099 --message "check health"
 """
 
@@ -191,18 +190,20 @@ def main(message: str | None, agent: str | None, list_agents: bool, ping: bool, 
 
         python chat.py --message "check system health" --verbose
 
-        python chat.py --agent health_agent --message "full diagnostic"
+        python chat.py --agent system.health.agent --message "full diagnostic"
 
         python chat.py --message "check system health" --raw
 
         python chat.py --ping
 
-        python chat.py -a health_agent -m "what needs fixing?" -v
+        python chat.py -a system.health.agent -m "what needs fixing?" -v
     """
     validate_project_root()
 
     if debug:
         setup_logging(level="DEBUG", format_type="console")
+    elif verbose:
+        setup_logging(level="INFO", format_type="console")
     else:
         setup_logging(level="WARNING", format_type="console")
 

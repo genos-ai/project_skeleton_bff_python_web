@@ -7,20 +7,20 @@ Phase 1: rule-based routing only (keyword matching).
 Usage:
     from modules.backend.agents.coordinator.coordinator import handle, handle_direct, list_agents
     result = await handle("How is the system doing?")
-    result = await handle_direct("health_agent", "check health")
+    result = await handle_direct("system.health.agent", "check health")
     agents = list_agents()
 """
 
 from typing import Any
 
-from modules.backend.core.config import find_project_root, load_yaml_config
+from modules.backend.core.config import find_project_root
 from modules.backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 def _load_agent_registry() -> dict[str, dict]:
-    """Load all agent configs from config/agents/*.yaml."""
+    """Load all agent configs from config/agents/**/agent.yaml recursively."""
     agents_dir = find_project_root() / "config" / "agents"
     registry: dict[str, dict] = {}
 
@@ -29,10 +29,10 @@ def _load_agent_registry() -> dict[str, dict]:
 
     import yaml
 
-    for path in sorted(agents_dir.glob("*.yaml")):
+    for path in sorted(agents_dir.rglob("agent.yaml")):
         with open(path) as f:
             config = yaml.safe_load(f) or {}
-        if config["enabled"]:
+        if config.get("enabled"):
             registry[config["agent_name"]] = config
 
     return registry
@@ -79,7 +79,7 @@ async def handle_direct(agent_name: str, user_input: str) -> dict[str, Any]:
     Send a message directly to a named agent, bypassing routing.
 
     Args:
-        agent_name: The agent to invoke
+        agent_name: The agent to invoke (e.g., "system.health.agent")
         user_input: The user's message
 
     Returns:
@@ -97,21 +97,57 @@ async def handle_direct(agent_name: str, user_input: str) -> dict[str, Any]:
     return await _execute(agent_name, user_input)
 
 
+_AGENT_EXECUTORS: dict[str, Any] = {}
+
+
+def _register_executors() -> None:
+    """Register agent executor functions. Called once on first use."""
+    if _AGENT_EXECUTORS:
+        return
+
+    registry = _load_agent_registry()
+
+    if "system.health.agent" in registry:
+        from modules.backend.agents.vertical.system.health.agent import run_health_agent
+
+        async def _exec_health(user_input: str) -> dict[str, Any]:
+            result = await run_health_agent(user_input)
+            return {
+                "agent_name": "system.health.agent",
+                "output": result.summary,
+                "components": result.components,
+                "advice": result.advice,
+            }
+
+        _AGENT_EXECUTORS["system.health.agent"] = _exec_health
+
+    if "code.qa.agent" in registry:
+        from modules.backend.agents.vertical.code.qa.agent import run_qa_agent
+
+        async def _exec_qa(user_input: str) -> dict[str, Any]:
+            result = await run_qa_agent(user_input)
+            return {
+                "agent_name": "code.qa.agent",
+                "output": result.summary,
+                "violations": [v.model_dump() for v in result.violations],
+                "total_violations": result.total_violations,
+                "error_count": result.error_count,
+                "warning_count": result.warning_count,
+                "fixed_count": result.fixed_count,
+                "needs_human_count": result.needs_human_count,
+                "tests_passed": result.tests_passed,
+            }
+
+        _AGENT_EXECUTORS["code.qa.agent"] = _exec_qa
+
+
 async def _execute(agent_name: str, user_input: str) -> dict[str, Any]:
     """Execute a named agent with the given input."""
-    if agent_name == "health_agent":
-        from modules.backend.agents.vertical.health_agent import run_health_agent
-
-        result = await run_health_agent(user_input)
-
-        return {
-            "agent_name": "health_agent",
-            "output": result.summary,
-            "components": result.components,
-            "advice": result.advice,
-        }
-
-    raise ValueError(f"Agent '{agent_name}' is registered but has no executor.")
+    _register_executors()
+    executor = _AGENT_EXECUTORS.get(agent_name)
+    if executor is None:
+        raise ValueError(f"Agent '{agent_name}' is registered but has no executor.")
+    return await executor(user_input)
 
 
 def _route(user_input: str) -> str:

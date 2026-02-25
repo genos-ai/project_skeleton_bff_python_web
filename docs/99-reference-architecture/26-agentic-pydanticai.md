@@ -1,11 +1,12 @@
 # 26 - Agentic AI: PydanticAI Implementation (Optional Module)
 
-*Version: 2.0.0*
+*Version: 2.1.0*
 *Author: Architecture Team*
 *Created: 2026-02-18*
 
 ## Changelog
 
+- 2.1.0 (2026-02-24): Added channel/session_type/tool_access_level to CoordinatorRequest, added WebSocket entry point example with run_stream(), added gateway-mediated channel adapter note referencing 29-multi-channel-gateway.md
 - 2.0.0 (2026-02-19): Rewrote with PydanticAI-native patterns — coordinator as PydanticAI Agent, agent-as-tool delegation with cost propagation, UsageLimits for budget enforcement, decorator-based middleware, merged entry points/HITL/database models from research docs, removed LangGraph, fixed all hardcoded values and datetime issues
 - 1.1.0 (2026-02-18): Added concept-to-implementation mapping, data model mapping, reconciled SQL schema with AgentTask primitive
 - 1.0.0 (2026-02-18): Initial PydanticAI implementation guide
@@ -450,6 +451,14 @@ Four complementary layers prevent runaway delegation:
 
 The coordinator exposes a single async function: `handle(request: CoordinatorRequest) -> CoordinatorResponse`. All entry points construct a `CoordinatorRequest` and call it.
 
+`CoordinatorRequest` carries gateway context from **[29-multi-channel-gateway.md](29-multi-channel-gateway.md)**:
+
+- `channel` — originating channel (`telegram`, `slack`, `websocket`, `cli`, `tui`, `api`)
+- `session_type` — `direct` or `group` (controls session isolation)
+- `tool_access_level` — `full`, `sandbox`, or `readonly` (coordinator filters available tools before execution)
+
+When requests arrive through channel adapters (doc 29), the gateway has already enforced security (allowlist, rate limiting, input validation), resolved the session, and set these fields. Direct API callers set them explicitly.
+
 **FastAPI:**
 
 ```python
@@ -460,6 +469,9 @@ async def chat(payload: ChatPayload) -> ChatResponse:
         session_id=payload.session_id,
         user_id=payload.user_id,
         entry_point=EntryPoint.HTTP,
+        channel="api",
+        session_type="direct",
+        tool_access_level="sandbox",
     )
     result = await handle(request)
     return ChatResponse(output=result.output, conversation_id=result.conversation_id)
@@ -532,6 +544,54 @@ async def consume_agent_stream(redis: Redis, stream_key: str) -> None:
 ```
 
 Start the consumer as a Taskiq task that runs indefinitely, or as a dedicated process entry point.
+
+**WebSocket (real-time streaming):**
+
+```python
+from fastapi import WebSocket, WebSocketDisconnect
+from uuid import UUID
+
+
+async def websocket_agent_endpoint(websocket: WebSocket, session_id: str) -> None:
+    """WebSocket entry point for real-time agent interaction (TUI, web frontend)."""
+    await websocket.accept()
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            request = CoordinatorRequest(
+                user_input=data["message"],
+                session_id=UUID(session_id),
+                user_id=data["user_id"],
+                entry_point=EntryPoint.WEBSOCKET,
+                channel="websocket",
+                session_type="direct",
+                tool_access_level=data.get("tool_access_level", "sandbox"),
+            )
+
+            async with coordinator.run_stream(
+                request.user_input,
+                deps=CoordinatorDeps(registry=get_registry(), request=request),
+                usage_limits=_get_limits(config),
+            ) as streamed:
+                async for event in streamed.stream_events():
+                    if isinstance(event, TextPartDelta):
+                        await websocket.send_json({
+                            "type": "agent.response.chunk",
+                            "text": event.delta,
+                        })
+
+            await websocket.send_json({"type": "agent.response.complete"})
+
+    except WebSocketDisconnect:
+        pass
+```
+
+This is the primary transport for the TUI (**[28-tui-architecture.md](28-tui-architecture.md)**) and the real-time web frontend. Token-by-token streaming via `run_stream()` gives the user immediate feedback as the agent reasons.
+
+**Channel adapters (gateway-mediated):**
+
+When requests arrive through the multi-channel gateway (**[29-multi-channel-gateway.md](29-multi-channel-gateway.md)**), the gateway constructs the `CoordinatorRequest` after enforcing security, resolving the session, and setting `channel`, `session_type`, and `tool_access_level`. Individual channel adapters (Telegram, Slack, Discord) do not call `handle()` directly — they go through the gateway's router, which adds the gateway context and delivers the response back through the originating channel.
 
 ---
 
@@ -1411,6 +1471,7 @@ No coordinator changes needed. The registry auto-discovers the new agent's capab
 ## Related Documentation
 
 - [25-agentic-architecture.md](25-agentic-architecture.md) — **Conceptual architecture** (phases, principles, patterns, primitive)
+- [29-multi-channel-gateway.md](29-multi-channel-gateway.md) — Multi-channel delivery, session management, channel adapters, WebSocket real-time push
 - [Why PydanticAI is the right agent framework](../../98-research/08-Why%20PydanticAI%20is%20the%20right%20agent%20framework%20for%20your%20FastAPI%20stack.md) — Framework selection rationale
 - [Multi-agent systems on FastAPI](../../98-research/03-Multi-agent%20systems%20on%20FastAPI-%20a%20prescriptive%20reference%20architecture.md) — PydanticAI pattern reference
 - [08-llm-integration.md](08-llm-integration.md) — LLM provider interface, cost tracking, prompt management

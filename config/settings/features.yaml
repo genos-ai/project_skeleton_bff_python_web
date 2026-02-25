@@ -6,23 +6,70 @@
 #   Each flag should be a boolean (true/false).
 #
 #   Naming convention: lowercase_with_underscores
-#   
+#
 #   Categories:
-#     auth_*        - Authentication features
-#     api_*         - API behavior features
-#     ui_*          - Frontend features
-#     experimental_* - Experimental features (use with caution)
+#     auth_*          - Authentication and authorization features
+#     api_*           - API behavior features
+#     channel_*       - Messaging channel enablement (all disabled by default)
+#     gateway_*       - Multi-channel gateway features
+#     agent_*         - Agent infrastructure features
+#     security_*      - Security enforcement features
+#     experimental_*  - Experimental features (use with caution)
+#
+#   Security principle: channels and agent infrastructure are disabled by
+#   default. Each must be explicitly enabled. This prevents accidental
+#   exposure of unconfigured interfaces.
 # =============================================================================
 
-# Authentication features
+# -----------------------------------------------------------------------------
+# Authentication
+# -----------------------------------------------------------------------------
 auth_require_email_verification: false
 auth_allow_api_key_creation: true
 auth_rate_limit_enabled: true
+auth_require_api_authentication: true
 
-# API features
+# -----------------------------------------------------------------------------
+# API Behavior
+# -----------------------------------------------------------------------------
 api_detailed_errors: false
 api_request_logging: true
 
-# Experimental features (disabled by default)
-experimental_websocket_enabled: false
+# -----------------------------------------------------------------------------
+# Channels (all disabled by default — must explicitly enable)
+# -----------------------------------------------------------------------------
+channel_telegram_enabled: false
+channel_slack_enabled: false
+channel_discord_enabled: false
+channel_whatsapp_enabled: false
+
+# -----------------------------------------------------------------------------
+# Multi-Channel Gateway (doc 29)
+# -----------------------------------------------------------------------------
+gateway_enabled: false
+gateway_websocket_enabled: false
+gateway_pairing_enabled: false
+
+# -----------------------------------------------------------------------------
+# Agent Infrastructure (docs 25/26)
+# -----------------------------------------------------------------------------
+agent_coordinator_enabled: false
+agent_streaming_enabled: false
+
+# -----------------------------------------------------------------------------
+# Agent-First Infrastructure (doc 27)
+# -----------------------------------------------------------------------------
+mcp_enabled: false
+a2a_enabled: false
+
+# -----------------------------------------------------------------------------
+# Security Enforcement
+# -----------------------------------------------------------------------------
+security_startup_checks_enabled: true
+security_headers_enabled: true
+security_cors_enforce_production: true
+
+# -----------------------------------------------------------------------------
+# Experimental (disabled by default)
+# -----------------------------------------------------------------------------
 experimental_background_tasks_enabled: true

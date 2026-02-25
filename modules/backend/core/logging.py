@@ -42,10 +42,9 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-import yaml
 from structlog.typing import Processor
 
-from modules.backend.core.config import find_project_root
+from modules.backend.core.config import find_project_root, load_yaml_config
 
 # Valid log sources - logs are routed to files based on these
 LOG_SOURCES = {
@@ -78,15 +77,7 @@ def _load_logging_config() -> dict[str, Any]:
     """
     global _logging_config
     if _logging_config is None:
-        project_root = find_project_root()
-        config_path = project_root / "config" / "settings" / "logging.yaml"
-
-        if not config_path.exists():
-            raise FileNotFoundError(f"Logging configuration not found: {config_path}")
-
-        with open(config_path) as f:
-            _logging_config = yaml.safe_load(f) or {}
-
+        _logging_config = load_yaml_config("logging.yaml")
     return _logging_config
 
 

@@ -45,12 +45,17 @@ def info() -> None:
 
 @app.command()
 def config(
-    section: Optional[str] = typer.Argument(None, help="Config section to show (application, database, logging, features)"),
+    section: Optional[str] = typer.Option(None, "--section", "-s", help="Config section to show (application, database, logging, features, security)"),
 ) -> None:
     """
     Display configuration settings.
 
     Shows all configuration or a specific section.
+
+    Examples:
+        cli_typer.py system config                        # Show all sections
+        cli_typer.py system config --section application   # Show application only
+        cli_typer.py system config -s security             # Show security only
     """
     try:
         from modules.backend.core.config import get_app_config

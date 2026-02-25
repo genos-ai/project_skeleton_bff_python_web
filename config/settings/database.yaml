@@ -16,6 +16,9 @@
 #     host          - Redis host (string)
 #     port          - Redis port (integer)
 #     db            - Redis database number (integer)
+#     broker        - Taskiq broker settings (object)
+#       queue_name  - Redis queue name for task dispatch (string)
+#       result_expiry_seconds - Task result TTL in Redis (integer)
 # =============================================================================
 
 host: "localhost"
@@ -34,3 +37,6 @@ redis:
   host: "localhost"
   port: 6379
   db: 0
+  broker:
+    queue_name: "bff_tasks"
+    result_expiry_seconds: 3600

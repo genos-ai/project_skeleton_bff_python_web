@@ -18,6 +18,7 @@ FastAPI backend, React frontend, PostgreSQL, Redis, Taskiq.
 - **All CLI scripts must have `--verbose` and `--debug` options** with appropriate logging for each.
 - **Files must not exceed 1000 lines.** Target ~400-500 lines. Split into focused submodules if larger.
 - **`__init__.py` files must be minimal.** Docstring and necessary exports only. No business logic.
+- **Secure by default (P8).** All external interfaces deny access when unconfigured. Empty allowlists = deny all. Missing secrets = startup failure. New channels/features disabled by default.
 
 ## Architecture
 
@@ -127,3 +128,4 @@ Full standards in `docs/99-reference-architecture/`:
 | 25 | Agentic AI Architecture (conceptual) |
 | 26 | Agentic AI PydanticAI Implementation |
 | 27 | Agent-First Infrastructure (MCP, A2A, agent identity) |
+| 29 | Multi-Channel Gateway (channel adapters, sessions, WebSocket, security) |

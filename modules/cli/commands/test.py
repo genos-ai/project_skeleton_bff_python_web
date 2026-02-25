@@ -17,8 +17,9 @@ console = Console()
 
 @app.command()
 def run(
-    test_type: str = typer.Argument(
+    test_type: str = typer.Option(
         "all",
+        "--type", "-t",
         help="Test type: all, unit, integration, e2e",
     ),
     coverage: bool = typer.Option(False, "--coverage", "-c", help="Run with coverage"),
@@ -30,12 +31,12 @@ def run(
     Run the test suite.
 
     Examples:
-        cli_typer.py test run                    # Run all tests
-        cli_typer.py test run unit               # Run unit tests only
-        cli_typer.py test run integration        # Run integration tests
-        cli_typer.py test run unit --coverage    # Unit tests with coverage
-        cli_typer.py test run -k "test_health"   # Run tests matching pattern
-        cli_typer.py test run --fail-fast        # Stop on first failure
+        cli_typer.py test run                         # Run all tests
+        cli_typer.py test run --type unit              # Run unit tests only
+        cli_typer.py test run -t integration           # Run integration tests
+        cli_typer.py test run --type unit --coverage   # Unit tests with coverage
+        cli_typer.py test run -k "test_health"         # Run tests matching pattern
+        cli_typer.py test run --fail-fast              # Stop on first failure
     """
     cmd = [sys.executable, "-m", "pytest"]
 

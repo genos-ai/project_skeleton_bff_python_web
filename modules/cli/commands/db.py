@@ -42,15 +42,15 @@ def _run_alembic(args: list[str]) -> None:
 
 @app.command()
 def upgrade(
-    revision: str = typer.Argument("head", help="Target revision (default: head)"),
+    revision: str = typer.Option("head", "--revision", "-r", help="Target revision"),
 ) -> None:
     """
     Upgrade database to a revision.
 
     Examples:
-        cli_typer.py db upgrade          # Upgrade to latest
-        cli_typer.py db upgrade head     # Upgrade to latest
-        cli_typer.py db upgrade abc123   # Upgrade to specific revision
+        cli_typer.py db upgrade                  # Upgrade to latest
+        cli_typer.py db upgrade --revision head   # Upgrade to latest
+        cli_typer.py db upgrade -r abc123         # Upgrade to specific revision
     """
     _check_alembic()
     console.print(f"[bold]Upgrading database to revision: {revision}[/bold]\n")
@@ -60,15 +60,15 @@ def upgrade(
 
 @app.command()
 def downgrade(
-    revision: str = typer.Argument(..., help="Target revision"),
+    revision: str = typer.Option(..., "--revision", "-r", help="Target revision"),
 ) -> None:
     """
     Downgrade database to a revision.
 
     Examples:
-        cli_typer.py db downgrade -1       # Downgrade one revision
-        cli_typer.py db downgrade abc123   # Downgrade to specific revision
-        cli_typer.py db downgrade base     # Downgrade to initial state
+        cli_typer.py db downgrade --revision -1       # Downgrade one revision
+        cli_typer.py db downgrade -r abc123            # Downgrade to specific revision
+        cli_typer.py db downgrade --revision base      # Downgrade to initial state
     """
     _check_alembic()
     console.print(f"[bold]Downgrading database to revision: {revision}[/bold]\n")

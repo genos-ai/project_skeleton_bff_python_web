@@ -1,11 +1,12 @@
 # 01 - Core Principles
 
-*Version: 1.0.0*
+*Version: 1.1.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 1.1.0 (2026-02-24): Added P8 Secure by Default — deny-by-default posture for all external interfaces, complements P5 Fail Fast
 - 1.0.0 (2025-01-27): Initial generic principles document
 
 ---
@@ -88,6 +89,21 @@ Implications:
 - Environment-specific values in .env files
 - Application settings in YAML configuration
 - Secrets in environment variables only
+
+### P8: Secure by Default
+
+All external interfaces start in a denied state and require explicit configuration to open. When a security-relevant configuration value is missing, empty, or ambiguous, the system denies access — it never silently degrades to permissiveness. This is the Linux model (no permissions until granted) not the Windows model (full access until restricted).
+
+P5 (Fail Fast) says crash when configuration is missing. P8 says that even when configuration is *present*, the default posture must be closed. An empty allowlist means deny all, not allow all. A new feature means disabled until enabled. A new endpoint means authenticated until exempted. A new channel means closed until opened.
+
+Implications:
+- Empty allowlists deny all access — never interpreted as "allow everyone"
+- New features, channels, and external interfaces are disabled by default in feature flags
+- Secrets have minimum length validation enforced at startup (not just non-empty)
+- API endpoints require authentication unless explicitly exempted in configuration
+- Webhook endpoints require secret validation — empty secret means the endpoint refuses to mount
+- CORS, rate limiting, and security headers are enforced in production without opt-in
+- Production environment rejects debug mode, detailed errors, and localhost CORS origins at startup
 
 ---
 

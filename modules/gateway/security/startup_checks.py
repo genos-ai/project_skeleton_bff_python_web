@@ -1,0 +1,139 @@
+"""
+Startup Security Validation.
+
+Enforces P8 (Secure by Default) by checking security invariants
+before the application accepts traffic. If any check fails, the
+application refuses to start with a clear error message.
+
+Called during FastAPI lifespan initialization.
+"""
+
+from modules.backend.core.config import get_app_config, get_settings
+from modules.backend.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class StartupSecurityError(RuntimeError):
+    """Raised when a startup security check fails."""
+
+    pass
+
+
+def run_startup_checks() -> None:
+    """
+    Validate all security invariants at startup.
+
+    Raises:
+        StartupSecurityError: If any check fails
+    """
+    app_config = get_app_config()
+    settings = get_settings()
+    security_config = app_config.security
+    features = app_config.features
+    environment = app_config.application.get("environment", "development")
+    is_production = environment == "production"
+
+    errors: list[str] = []
+
+    _check_secret_strength(settings, security_config, errors)
+    _check_channel_secrets(settings, features, errors)
+    _check_production_safety(app_config, is_production, errors)
+    _check_channel_allowlists(app_config, features, errors)
+
+    if errors:
+        for error in errors:
+            logger.error("Startup security check failed", extra={"check": error})
+        raise StartupSecurityError(
+            f"Startup blocked — {len(errors)} security check(s) failed:\n"
+            + "\n".join(f"  - {e}" for e in errors)
+        )
+
+    logger.info(
+        "Startup security checks passed",
+        extra={"environment": environment, "checks_run": 4},
+    )
+
+
+def _check_secret_strength(settings, security_config: dict, errors: list[str]) -> None:
+    """Validate that secrets meet minimum length requirements."""
+    validation = security_config.get("secrets_validation", {})
+
+    jwt_min = validation.get("jwt_secret_min_length", 32)
+    if len(settings.jwt_secret) < jwt_min:
+        errors.append(
+            f"JWT_SECRET is {len(settings.jwt_secret)} chars, "
+            f"minimum is {jwt_min}"
+        )
+
+    salt_min = validation.get("api_key_salt_min_length", 16)
+    if len(settings.api_key_salt) < salt_min:
+        errors.append(
+            f"API_KEY_SALT is {len(settings.api_key_salt)} chars, "
+            f"minimum is {salt_min}"
+        )
+
+
+def _check_channel_secrets(settings, features: dict, errors: list[str]) -> None:
+    """Validate that enabled channels have required secrets configured."""
+    if features.get("channel_telegram_enabled"):
+        if not settings.telegram_bot_token:
+            errors.append(
+                "channel_telegram_enabled is true but TELEGRAM_BOT_TOKEN is empty"
+            )
+        if not settings.telegram_webhook_secret:
+            errors.append(
+                "channel_telegram_enabled is true but TELEGRAM_WEBHOOK_SECRET is empty"
+            )
+
+
+def _check_production_safety(app_config, is_production: bool, errors: list[str]) -> None:
+    """Validate production environment safety constraints."""
+    if not is_production:
+        return
+
+    app = app_config.application
+    if app.get("debug"):
+        errors.append("debug is true in production environment")
+
+    if app_config.features.get("api_detailed_errors"):
+        errors.append("api_detailed_errors is true in production environment")
+
+    if app.get("docs_enabled"):
+        errors.append("docs_enabled is true in production environment")
+
+    cors_config = app_config.security.get("cors", {})
+    if cors_config.get("enforce_in_production"):
+        origins = app.get("cors", {}).get("origins", [])
+        localhost_origins = [o for o in origins if "localhost" in o]
+        if localhost_origins:
+            errors.append(
+                f"CORS origins contain localhost in production: {localhost_origins}"
+            )
+
+
+def _check_channel_allowlists(app_config, features: dict, errors: list[str]) -> None:
+    """Validate that enabled channels with allowlist policy have non-empty allowlists."""
+    gateway_config = {}
+    try:
+        from modules.backend.core.config import load_yaml_config
+        gateway_config = load_yaml_config("gateway.yaml")
+    except FileNotFoundError:
+        return
+
+    channels = gateway_config.get("channels", {})
+    default_policy = gateway_config.get("default_policy", "deny")
+
+    for channel_name, channel_conf in channels.items():
+        feature_key = f"channel_{channel_name}_enabled"
+        if not features.get(feature_key):
+            continue
+
+        policy = default_policy
+        allowlist = channel_conf.get("allowlist", [])
+
+        if policy == "allowlist" and not allowlist:
+            errors.append(
+                f"Channel '{channel_name}' is enabled with 'allowlist' policy "
+                f"but allowlist is empty"
+            )

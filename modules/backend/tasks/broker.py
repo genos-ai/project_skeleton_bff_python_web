@@ -18,52 +18,41 @@ from modules.backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Type hints for IDE support
 if TYPE_CHECKING:
     from taskiq_redis import ListQueueBroker
-
-
-def get_redis_url() -> str:
-    """
-    Get Redis URL from environment.
-
-    Returns:
-        Redis connection URL
-
-    Raises:
-        RuntimeError: If REDIS_URL is not configured
-    """
-    from modules.backend.core.config import get_redis_url as _get_redis_url
-    return _get_redis_url()
 
 
 def create_broker() -> "ListQueueBroker":
     """
     Create and configure the Taskiq broker.
 
+    Configuration loaded from config/settings/database.yaml (redis.broker section).
+
     Returns:
         Configured ListQueueBroker instance
     """
     from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend
 
-    redis_url = get_redis_url()
+    from modules.backend.core.config import get_app_config, get_redis_url
 
-    # Create result backend for storing task results
-    # Results expire after 1 hour by default
+    redis_url = get_redis_url()
+    broker_config = get_app_config().database["redis"]["broker"]
+    queue_name = broker_config["queue_name"]
+    result_expiry = broker_config["result_expiry_seconds"]
+
     result_backend = RedisAsyncResultBackend(
         redis_url=redis_url,
-        result_ex_time=3600,  # 1 hour expiration
+        result_ex_time=result_expiry,
     )
 
-    # Create broker with Redis backend
     broker = ListQueueBroker(
         url=redis_url,
-        queue_name="bff_tasks",  # Queue name in Redis
+        queue_name=queue_name,
     ).with_result_backend(result_backend)
 
     logger.debug(
         "Taskiq broker configured",
-        extra={"queue_name": "bff_tasks", "result_expiry": 3600},
+        extra={"queue_name": queue_name, "result_expiry": result_expiry},
     )
 
     return broker

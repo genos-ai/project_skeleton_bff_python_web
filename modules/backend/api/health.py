@@ -10,7 +10,6 @@ Endpoints:
 """
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -38,14 +37,13 @@ async def check_database() -> dict[str, Any]:
         if not db_config["host"] or not db_config["name"]:
             return {"status": "not_configured"}
 
-        start = datetime.now(timezone.utc)
+        start = utc_now()
         async for session in get_db_session():
-            # Simple connectivity check
             from sqlalchemy import text
             await session.execute(text("SELECT 1"))
-            break  # Only need one iteration
+            break
 
-        latency_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+        latency_ms = int((utc_now() - start).total_seconds() * 1000)
 
         return {
             "status": "healthy",
@@ -75,12 +73,12 @@ async def check_redis() -> dict[str, Any]:
 
         redis_url = get_redis_url()
 
-        start = datetime.now(timezone.utc)
+        start = utc_now()
         client = redis.from_url(redis_url)
         await client.ping()
         await client.aclose()
 
-        latency_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+        latency_ms = int((utc_now() - start).total_seconds() * 1000)
 
         return {
             "status": "healthy",

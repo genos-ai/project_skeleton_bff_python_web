@@ -1,11 +1,12 @@
 # 25 - Agentic AI Architecture (Optional Module)
 
-*Version: 2.0.0*
+*Version: 2.1.0*
 *Author: Architecture Team*
 *Created: 2026-02-18*
 
 ## Changelog
 
+- 2.1.0 (2026-02-24): Added channel adapters to architecture diagram, added channel/session_type/tool_access_level to AgentTask primitive, updated orchestrator responsibilities to reference gateway (29-multi-channel-gateway.md)
 - 2.0.0 (2026-02-18): Split into conceptual architecture (this document) and implementation guide (26-agentic-pydanticai.md); this document is now framework-agnostic
 - 1.2.0 (2026-02-18): Expanded to 5 phases (Execute, Plan, Remember, Learn, Autonomy); added orchestrator evolution diagrams, tiered delegation pattern (Thinker/Specialist/Worker), agent-as-tool mechanism
 - 1.1.0 (2026-02-18): Added orchestration patterns section (Options A-D) with rationale for hybrid approach
@@ -490,6 +491,9 @@ Primitive: AgentTask
 | feedback        | JSON     | Outcome evaluation (null until Phase 4)              |
 | parent_task_id  | UUID     | For subtask hierarchies (nullable)                   |
 | created_by      | UUID     | User who initiated (or system for scheduled)         |
+| channel         | string   | Originating channel (telegram, slack, websocket, cli, tui, api) |
+| session_type    | Enum     | Session type: direct or group (see 29-multi-channel-gateway.md) |
+| tool_access_level | Enum   | Allowed tool scope: full, sandbox, or readonly (enforced before execution) |
 | model_used      | string   | Exact model identifier for the primary LLM call      |
 | prompt_version  | string   | System prompt version used                           |
 | token_input     | int      | Input tokens consumed                                |
@@ -579,7 +583,20 @@ Primitive: AgentTask
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    API Layer (FastAPI)                         │
+│                    Entry Points                                │
+│                                                               │
+│  ┌────────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐  │
+│  │  REST API  │ │ Telegram │ │  Slack   │ │  WebSocket   │  │
+│  │  (FastAPI) │ │ Webhook  │ │  Bolt    │ │  (TUI, Web)  │  │
+│  └─────┬──────┘ └────┬─────┘ └────┬─────┘ └──────┬───────┘  │
+│        │              │            │              │           │
+│        │    ┌─────────┴────────────┴──────────────┘           │
+│        │    │  Channel Adapters (29-multi-channel-gateway.md) │
+│        │    │  Security → Session → Router                    │
+│        │    └──────────────────┬───────────────────           │
+│        │                      │                               │
+│        └──────────┬───────────┘                               │
+│                   │                                           │
 │  POST /api/v1/agent/run     GET /api/v1/agent/tasks          │
 │  POST /api/v1/agent/cancel  GET /api/v1/agent/tasks/{id}     │
 └────────────────────────────┬─────────────────────────────────┘
@@ -646,10 +663,11 @@ For concrete agent definition YAML schema and registry implementation, see **[26
 The orchestrator is the entry point for all agent work. Every request flows through it.
 
 **Responsibilities:**
-- Receive user requests from any entry point (API, CLI, Telegram, scheduled task)
+- Receive user requests from any entry point (API, CLI, Telegram, Slack, WebSocket, scheduled task). When requests arrive through channel adapters (**[29-multi-channel-gateway.md](29-multi-channel-gateway.md)**), the gateway has already enforced security, resolved the session, and set the `tool_access_level` before the orchestrator sees the request.
 - Route to the appropriate agent using hybrid routing (deterministic rules first, LLM classification fallback)
 - Compose horizontal middleware (guardrails, memory, cost tracking, output validation) around agents
-- Create AgentTask records
+- Enforce `tool_access_level` from the session — filter the agent's available tools based on the session's access level (`full`, `sandbox`, `readonly`) before execution
+- Create AgentTask records (including `channel`, `session_type`, and `tool_access_level` from the request)
 - Monitor execution progress
 - Handle failures, retries, and escalation
 - Enforce plan-level budgets and step limits
@@ -1334,6 +1352,7 @@ Follow the phase-by-phase implementation checklist in **[26-agentic-pydanticai.m
 ## Related Documentation
 
 - [26-agentic-pydanticai.md](26-agentic-pydanticai.md) — **Implementation guide** using PydanticAI (module structure, code patterns, testing, configuration)
+- [29-multi-channel-gateway.md](29-multi-channel-gateway.md) — Multi-channel delivery, session management, channel adapters, real-time push
 - [02-primitive-identification.md](02-primitive-identification.md) — Primitive definition process
 - [08-llm-integration.md](08-llm-integration.md) — LLM provider, prompts, cost management
 - [06-event-architecture.md](06-event-architecture.md) — Event bus for agent events

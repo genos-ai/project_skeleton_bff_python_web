@@ -6,6 +6,7 @@ Uses mock data to simulate agent interactions without a running backend.
 
 Usage:
     python tui.py
+    python tui.py --verbose
     python tui.py --debug
 """
 
@@ -15,7 +16,16 @@ import asyncio
 import random
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+import httpx
+
+from modules.backend.core.config import get_app_config
+from modules.backend.core.logging import get_logger, setup_logging
+from modules.backend.core.utils import utc_now
 
 from rich.markdown import Markdown
 from rich.text import Text
@@ -47,7 +57,7 @@ class AgentMessage:
     cost: float = 0.0
     tokens: int = 0
     duration_ms: int = 0
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None).strftime("%H:%M:%S"))
+    timestamp: str = field(default_factory=lambda: utc_now().strftime("%H:%M:%S"))
 
 
 @dataclass
@@ -284,7 +294,8 @@ class AgentTUI(App):
         chat_log.write(Text.from_markup(
             "[bold]Welcome to Agent TUI[/]\n"
             "Type a message to interact with agents.\n"
-            "Try: [italic]'review my code'[/], [italic]'write a report'[/], or anything else.\n"
+            "Try: [italic]'health'[/] (live backend check), "
+            "[italic]'review my code'[/], [italic]'write a report'[/]\n"
             "─────────────────────────────────────────\n"
         ))
 
@@ -320,6 +331,10 @@ class AgentTUI(App):
 
         msg = AgentMessage(role="user", content=user_input)
         self._messages.append(msg)
+
+        if self._is_health_command(user_input):
+            await self._handle_health_check(chat_log)
+            return
 
         await asyncio.sleep(0.3)
 
@@ -366,6 +381,61 @@ class AgentTUI(App):
         )
         self._messages.append(agent_msg)
 
+    async def _handle_health_check(self, chat_log: ChatLog) -> None:
+        """Route health questions through the agent coordinator via API."""
+        chat_log.write(Text.from_markup("[dim]→ Routing to [bold]health_agent[/]...[/]\n"))
+
+        try:
+            server = get_app_config().application["server"]
+            base_url = f"http://{server['host']}:{server['port']}"
+            timeout = float(get_app_config().application["timeouts"]["external_api"])
+
+            async with httpx.AsyncClient(
+                base_url=base_url,
+                timeout=timeout,
+                headers={"X-Frontend-ID": "tui"},
+            ) as client:
+                response = await client.post(
+                    "/api/v1/agents/chat",
+                    json={"message": "Check system health and provide diagnostic advice"},
+                )
+
+            if response.status_code == 200:
+                data = response.json()
+                agent_data = data.get("data", {})
+                agent_name = agent_data.get("agent_name", "health_agent")
+                output = agent_data.get("output", "No response")
+                advice = agent_data.get("advice")
+                components = agent_data.get("components", {})
+
+                chat_log.write(Text.from_markup(
+                    f"\n[bold green]{agent_name}:[/] {output}\n"
+                ))
+
+                if components:
+                    for comp, status in components.items():
+                        color = "green" if "healthy" in status.lower() else "red" if "unhealthy" in status.lower() else "yellow"
+                        chat_log.write(Text.from_markup(
+                            f"  [{color}]●[/{color}] {comp}: {status}\n"
+                        ))
+
+                if advice:
+                    chat_log.write(Text.from_markup(
+                        f"\n[dim]Advice: {advice}[/]\n"
+                    ))
+            else:
+                error = response.json().get("error", {}).get("message", response.text)
+                chat_log.write(Text.from_markup(f"[red]Agent error: {error}[/]\n"))
+
+        except httpx.ConnectError:
+            chat_log.write(Text.from_markup("[red]Backend is not reachable[/]\n"))
+        except Exception as e:
+            chat_log.write(Text.from_markup(f"[red]Health check error: {e}[/]\n"))
+
+    def _is_health_command(self, text: str) -> bool:
+        """Check if the input is a health/status/ping command."""
+        return text.lower().strip() in ("health", "status", "ping", "/health", "/status", "/ping")
+
     def _route_to_agent(self, user_input: str) -> tuple[str, list[ReasoningStep]]:
         text = user_input.lower()
         if any(kw in text for kw in ["review", "code", "bug", "security"]):
@@ -394,8 +464,22 @@ class AgentTUI(App):
         )
 
 
+logger = get_logger(__name__)
+
+
 def main() -> None:
     debug = "--debug" in sys.argv
+    verbose = "--verbose" in sys.argv or "-v" in sys.argv
+
+    if debug:
+        setup_logging(level="DEBUG", format_type="console")
+    elif verbose:
+        setup_logging(level="INFO", format_type="console")
+    else:
+        setup_logging(level="WARNING", format_type="console")
+
+    logger.debug("Starting TUI", extra={"debug": debug, "verbose": verbose})
+
     app = AgentTUI(debug=debug)
     app.run()
 

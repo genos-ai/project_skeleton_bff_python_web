@@ -27,6 +27,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
     app_config = get_app_config()
     setup_logging(level=app_config.logging["level"])
+
+    if app_config.features.get("security_startup_checks_enabled", True):
+        from modules.gateway.security.startup_checks import run_startup_checks
+        run_startup_checks()
+
     logger.info(
         "Application starting",
         extra={
@@ -69,7 +74,35 @@ def create_app() -> FastAPI:
     app.include_router(health.router, tags=["health"])
     app.include_router(api_v1_router, prefix="/api/v1")
 
+    _mount_channel_adapters(app, app_config)
+
     return app
+
+
+def _mount_channel_adapters(app: FastAPI, app_config) -> None:
+    """Mount enabled channel adapters via the gateway registry."""
+    features = app_config.features
+
+    if features.get("channel_telegram_enabled"):
+        try:
+            from modules.telegram.bot import get_bot, get_dispatcher
+            from modules.telegram.webhook import get_webhook_router
+            from modules.gateway.registry import get_adapter
+
+            bot = get_bot()
+            dp = get_dispatcher()
+            app.include_router(get_webhook_router(bot, dp))
+
+            adapter = get_adapter("telegram")
+            if adapter:
+                logger.info("Telegram channel mounted via gateway adapter")
+
+        except Exception as e:
+            logger.error(
+                "Failed to mount Telegram channel",
+                extra={"error": str(e)},
+            )
+            raise
 
 
 def get_app() -> FastAPI:

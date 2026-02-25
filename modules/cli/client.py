@@ -14,8 +14,14 @@ from modules.backend.core.logging import get_logger, log_with_source
 
 logger = get_logger(__name__)
 
-# Default timeout for API calls
-DEFAULT_TIMEOUT = 30.0
+
+def _get_client_config() -> tuple[str, float]:
+    """Load base URL and timeout from application.yaml."""
+    app_config = get_app_config()
+    server = app_config.application["server"]
+    base_url = f"http://{server['host']}:{server['port']}"
+    timeout = float(app_config.application["timeouts"]["external_api"])
+    return base_url, timeout
 
 
 class APIClient:
@@ -34,26 +40,26 @@ class APIClient:
         response = await client.post("/api/v1/users", json={"name": "test"})
     """
 
-    def __init__(self, base_url: str | None = None, timeout: float = DEFAULT_TIMEOUT):
+    def __init__(self, base_url: str | None = None, timeout: float | None = None):
         """
         Initialize the API client.
 
         Args:
-            base_url: Backend API base URL. If None, reads from settings.
-            timeout: Request timeout in seconds.
+            base_url: Backend API base URL. If None, reads from config/settings/application.yaml.
+            timeout: Request timeout in seconds. If None, reads from config/settings/application.yaml.
         """
-        if base_url is None:
-            try:
-                from modules.backend.core.config import get_app_config
-                server = get_app_config().application["server"]
-                base_url = f"http://{server['host']}:{server['port']}"
-            except Exception as e:
+        try:
+            config_base_url, config_timeout = _get_client_config()
+        except Exception as e:
+            if base_url is None:
                 raise RuntimeError(
                     "Could not determine server URL from config/settings/application.yaml"
                 ) from e
+            config_base_url = base_url
+            config_timeout = timeout if timeout is not None else 30.0
 
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
+        self.base_url = (base_url or config_base_url).rstrip("/")
+        self.timeout = timeout if timeout is not None else config_timeout
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:

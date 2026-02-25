@@ -2,13 +2,101 @@
 # Security Configuration
 # =============================================================================
 # Available options:
-#   jwt             - JWT token settings (object)
-#     algorithm     - JWT signing algorithm (string: HS256|HS384|HS512|RS256)
+#   jwt                 - JWT token settings (object)
+#     algorithm         - JWT signing algorithm (string: HS256|HS384|HS512|RS256)
 #     access_token_expire_minutes  - Access token lifetime in minutes (integer)
 #     refresh_token_expire_days    - Refresh token lifetime in days (integer)
+#     audience          - Expected audience claim for token validation (string)
+#   rate_limiting       - Rate limit settings per interface (object)
+#     api               - REST API limits (object)
+#       requests_per_minute  - Max requests per minute per client (integer)
+#       requests_per_hour    - Max requests per hour per client (integer)
+#     telegram          - Telegram channel limits (object)
+#       messages_per_minute  - Max messages per minute per user (integer)
+#       messages_per_hour    - Max messages per hour per user (integer)
+#     websocket         - WebSocket limits (object)
+#       messages_per_minute  - Max messages per minute per connection (integer)
+#       messages_per_hour    - Max messages per hour per connection (integer)
+#   request_limits      - Request payload constraints (object)
+#     max_body_size_bytes    - Maximum request body size (integer)
+#     max_header_size_bytes  - Maximum total header size (integer)
+#   headers             - Security response headers (object)
+#     x_content_type_options  - X-Content-Type-Options value (string)
+#     x_frame_options         - X-Frame-Options value (string)
+#     referrer_policy         - Referrer-Policy value (string)
+#     hsts_enabled            - Enable Strict-Transport-Security (boolean)
+#     hsts_max_age            - HSTS max-age in seconds (integer)
+#   secrets_validation  - Minimum requirements for secrets at startup (object)
+#     jwt_secret_min_length       - Minimum JWT secret length (integer)
+#     api_key_salt_min_length     - Minimum API key salt length (integer)
+#     webhook_secret_min_length   - Minimum webhook secret length (integer)
+#   cors                - Production CORS enforcement (object)
+#     enforce_in_production       - Reject localhost origins in production (boolean)
+#     allow_methods               - Allowed HTTP methods (list of strings)
+#     allow_headers               - Allowed HTTP headers (list of strings)
 # =============================================================================
 
+# -----------------------------------------------------------------------------
+# JWT Token Settings
+# -----------------------------------------------------------------------------
 jwt:
   algorithm: "HS256"
   access_token_expire_minutes: 30
   refresh_token_expire_days: 7
+  audience: "bff-api"
+
+# -----------------------------------------------------------------------------
+# Rate Limiting (per user/client, enforced at middleware level)
+# -----------------------------------------------------------------------------
+rate_limiting:
+  api:
+    requests_per_minute: 60
+    requests_per_hour: 1000
+  telegram:
+    messages_per_minute: 30
+    messages_per_hour: 500
+  websocket:
+    messages_per_minute: 60
+    messages_per_hour: 1000
+
+# -----------------------------------------------------------------------------
+# Request Payload Constraints
+# -----------------------------------------------------------------------------
+request_limits:
+  max_body_size_bytes: 1048576
+  max_header_size_bytes: 8192
+
+# -----------------------------------------------------------------------------
+# Security Response Headers
+# -----------------------------------------------------------------------------
+headers:
+  x_content_type_options: "nosniff"
+  x_frame_options: "DENY"
+  referrer_policy: "strict-origin-when-cross-origin"
+  hsts_enabled: false
+  hsts_max_age: 31536000
+
+# -----------------------------------------------------------------------------
+# Secrets Validation (checked at startup — fails fast if not met)
+# -----------------------------------------------------------------------------
+secrets_validation:
+  jwt_secret_min_length: 32
+  api_key_salt_min_length: 16
+  webhook_secret_min_length: 16
+
+# -----------------------------------------------------------------------------
+# CORS Production Enforcement
+# -----------------------------------------------------------------------------
+cors:
+  enforce_in_production: true
+  allow_methods:
+    - "GET"
+    - "POST"
+    - "PATCH"
+    - "DELETE"
+    - "OPTIONS"
+  allow_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "X-Request-ID"
+    - "X-Frontend-ID"

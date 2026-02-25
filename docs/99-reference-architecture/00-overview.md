@@ -1,11 +1,12 @@
 # Architecture Standards Overview
 
-*Version: 2.2.0*
+*Version: 2.3.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 2.3.0 (2026-02-24): Added 29-multi-channel-gateway.md for channel adapters, session management, real-time push, gateway security; updated 01 with P8 Secure by Default
 - 2.2.0 (2026-02-24): Added 28-tui-architecture.md for interactive terminal interface (Textual)
 - 2.1.0 (2026-02-20): Added 27-agent-first-infrastructure.md for MCP, A2A, agent identity, intent APIs, agent-discoverable endpoints
 - 2.0.0 (2026-02-19): Consolidated agentic docs — trimmed 25 to framework-agnostic concepts, rewrote 26 with PydanticAI-native patterns, archived research-25
@@ -36,7 +37,7 @@ Architectural decisions made inconsistently across projects create compounding c
 
 The structure separates Core standards (which apply to every project unconditionally) from Optional modules (which are adopted per project need). This lets teams skip irrelevant complexity — a backend-only API doesn't need frontend standards — while ensuring that when a capability is adopted, it follows the same patterns everywhere. Optional modules declare their dependencies explicitly, so adopting one module tells you exactly what else you need.
 
-Each document in this set is self-contained enough to be read independently, but they form a coherent whole. Core Principles (01) define the non-negotiable mandates. Backend Architecture (03) and Module Structure (04) define how code is organized. Coding Standards (10, 11), Testing (16), and Workflow (13) define how code is written and shipped. Security (17), Data Protection (18), and Authentication (09) define how it is secured. Deployment (21, 22) defines how it runs. Optional modules — Data Layer (05), Events (06), Frontend (07), LLM (08), Telegram (20, 23), Agentic AI (25, 26), Agent-First Infrastructure (27), TUI (28) — extend the core when projects need those capabilities.
+Each document in this set is self-contained enough to be read independently, but they form a coherent whole. Core Principles (01) define the non-negotiable mandates. Backend Architecture (03) and Module Structure (04) define how code is organized. Coding Standards (10, 11), Testing (16), and Workflow (13) define how code is written and shipped. Security (17), Data Protection (18), and Authentication (09) define how it is secured. Deployment (21, 22) defines how it runs. Optional modules — Data Layer (05), Events (06), Frontend (07), LLM (08), Telegram (20, 23), Agentic AI (25, 26), Agent-First Infrastructure (27), TUI (28), Multi-Channel Gateway (29) — extend the core when projects need those capabilities.
 
 ---
 
@@ -84,6 +85,7 @@ Adopt these based on project requirements:
 | 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI (coordinator, agents, middleware, testing, database schema). Read 25 first. |
 | 27-agent-first-infrastructure.md | Agent-first infrastructure — MCP servers, A2A protocol, agent identity, intent APIs, agent-discoverable endpoints. Independent of 25/26. |
 | 28-tui-architecture.md | Terminal User Interface — interactive agent sessions, real-time monitoring, approvals, Textual + Textual Web |
+| 29-multi-channel-gateway.md | Multi-channel delivery — channel adapters, session management, real-time WebSocket push, DM pairing, gateway security |
 
 ---
 
@@ -110,6 +112,7 @@ Adopt these based on project requirements:
 - AI/LLM integration
 - Agentic AI systems (autonomous agents, orchestration, tools, memory)
 - Agent-first infrastructure (MCP, A2A, agent identity, intent APIs)
+- Multi-channel delivery (Telegram, Slack, Discord, WebSocket gateway)
 - Real-time data streaming
 - Time-series data processing
 - Event-driven architectures
@@ -169,6 +172,7 @@ Architecture choices favor technologies with extensive AI training data. This ma
 | 26-agentic-pydanticai.md | Agentic AI implementation using PydanticAI. Read 25 first. |
 | 27-agent-first-infrastructure.md | Exposing platform to external agents (MCP, A2A), agent identity, intent APIs |
 | 28-tui-architecture.md | Interactive terminal interface (Textual) for agent sessions, monitoring, approvals |
+| 29-multi-channel-gateway.md | Delivering agent interactions through multiple messaging channels (Telegram, Slack, Discord, WebSocket) with cross-channel sessions |
 
 ### Module Dependencies
 
@@ -206,6 +210,21 @@ Architecture choices favor technologies with extensive AI training data. This ma
 │  (core)    │  │  (core)    │
 └────────────┘  └────────────┘
 
+┌─────────────────────────────────┐
+│  29-multi-channel-gateway.md   │
+│  (optional — channel delivery, │
+│   sessions, WebSocket push)    │
+└──────────┬──┬──────────────────┘
+           │  │
+    ┌──────┘  └──────┐
+    │                │
+    ▼                ▼
+┌────────────┐  ┌──────────────────────┐
+│ 03-backend │  │ 20-telegram-bot.md   │
+│  (core)    │  │  (optional, first    │
+└────────────┘  │   channel adapter)   │
+                └──────────────────────┘
+
 ┌───────────────┐                       ┌───────────────┐
 │ 07-frontend   │                       │ 05-data-layer │
 │  (optional)   │                       │  (optional)   │
@@ -221,6 +240,7 @@ Architecture choices favor technologies with extensive AI training data. This ma
 If adopting 07-frontend-architecture.md, also adopt 11-typescript-coding-standards.md.
 If adopting 26-agentic-pydanticai.md, also adopt 25-agentic-architecture.md, 08-llm-integration.md, and 06-event-architecture.md.
 If adopting 27-agent-first-infrastructure.md, ensure 03-backend-architecture.md and 09-authentication.md are in place (both are core, so always present). Doc 27 is independent of 25/26 but composes naturally with them.
+If adopting 29-multi-channel-gateway.md, ensure 03-backend-architecture.md and 20-telegram-bot-integration.md are in place. Doc 29 benefits from 25/26 for agent routing but can operate with any backend handler.
 
 ---
 

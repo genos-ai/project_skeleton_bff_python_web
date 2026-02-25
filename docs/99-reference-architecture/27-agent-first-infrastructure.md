@@ -1,11 +1,12 @@
 # 27 - Agent-First Infrastructure (Optional Module)
 
-*Version: 1.0.0*
+*Version: 1.1.0*
 *Author: Architecture Team*
 *Created: 2026-02-20*
 
 ## Changelog
 
+- 1.1.0 (2026-02-24): Added Secure by Default principle (startup invariants, fail-closed enforcement), DM pairing protocol for messaging channels, channel-level rate limiting; references 29-multi-channel-gateway.md
 - 1.0.0 (2026-02-20): Initial agent-first infrastructure standard — MCP server integration, A2A protocol, agent identity, intent APIs, agent-discoverable endpoints, observability, testing, security
 
 ---
@@ -709,6 +710,76 @@ MCP servers **must not** forward client tokens to upstream APIs. The MCP server 
 
 Validate every A2A task message independently. Do not build accumulated trust based on conversation history — rogue agents exploit built-in trust relationships in multi-turn interactions.
 
+### Secure by Default Principle
+
+Every security boundary in the platform must **fail closed** when configuration is missing. The system must refuse to start rather than silently degrade to open access. This principle applies to all external interfaces — MCP endpoints, A2A endpoints, messaging channel webhooks, WebSocket connections, and REST APIs.
+
+This addresses the most common vulnerability pattern in agent-first platforms (documented in [98-research/07](../98-research/07-Personal%20AI%20assistant%20architecture-%20lessons%20from%20OpenClaw%20for%20agent-first%20platforms.md)): when a security-relevant configuration value is missing or empty, the system defaults to allowing all access, and the developer never notices until the vulnerability is exploited.
+
+**Startup invariants** (checked before the application accepts traffic):
+
+| Invariant | Condition | Failure |
+|-----------|-----------|---------|
+| JWT secret strength | `JWT_SECRET` length ≥ `secrets_validation.jwt_secret_min_length` from `security.yaml` | Startup failure |
+| API key salt strength | `API_KEY_SALT` length ≥ `secrets_validation.api_key_salt_min_length` from `security.yaml` | Startup failure |
+| Webhook secrets | If a channel with webhooks is enabled, its secret must be non-empty | Startup failure |
+| MCP authentication | If `mcp_enabled: true` in features, `authentication.required` must be `true` in `mcp.yaml` | Startup failure |
+| A2A authentication | If `a2a_enabled: true` in features, `security_schemes` must be configured in `a2a.yaml` | Startup failure |
+| Production safety | In `production` environment: `debug: false`, `api_detailed_errors: false`, `docs_enabled: false` | Startup failure |
+| CORS origins | In `production` environment: CORS origins must not contain `localhost` when `cors.enforce_in_production: true` in `security.yaml` | Startup failure |
+| Channel allowlists | If a channel is enabled with `default_policy: "allowlist"`, its allowlist must be non-empty | Startup failure |
+
+These checks are implemented as a startup validation function called during FastAPI's lifespan initialization. Configuration for validation thresholds lives in `config/settings/security.yaml` under `secrets_validation`.
+
+**Design rule**: No hardcoded fallback may weaken a security boundary. If a configuration value controls access (allowlists, secrets, rate limits), the absence of that value must result in denial, not permissiveness.
+
+### DM Pairing for Messaging Channels
+
+When the platform is exposed through messaging channels (Telegram, Slack, Discord, WhatsApp) via **[29-multi-channel-gateway.md](29-multi-channel-gateway.md)**, unknown senders must be authenticated before their messages reach the agent coordinator. Three policies are available, configured per channel in `config/settings/gateway.yaml`:
+
+| Policy | Behavior | When to Use |
+|--------|----------|-------------|
+| `deny` | Unknown senders receive no response. Message logged and dropped silently. | Default. Production systems where all users are pre-configured. |
+| `pairing` | Unknown senders receive a one-time code. Admin approves via CLI/API. Sender added to persistent allowlist. | Systems that need controlled onboarding of new users. |
+| `allowlist` | Only senders in the configured allowlist can interact. All others denied. | Same as deny, but with explicit allowlist configuration. |
+
+The **default policy is `deny`** — deploying with an empty allowlist results in a bot that responds to nobody. This is the correct posture for a system that has not been configured.
+
+The pairing protocol:
+1. Unknown sender messages through any channel
+2. Gateway generates a short alphanumeric code with configurable TTL (stored in Redis)
+3. Gateway responds: "Send this code to the admin to get access: `ABC123`"
+4. Admin approves: `python cli_click.py --action approve-pairing --code ABC123`
+5. Sender's channel-specific ID added to persistent allowlist
+6. Subsequent messages processed normally
+
+This pattern originates from messaging platform security practices and prevents the class of vulnerabilities where a public-facing bot processes messages from any sender — enabling prompt injection, resource exhaustion, and unauthorized access to agent capabilities.
+
+For the full gateway security implementation, see **[29-multi-channel-gateway.md](29-multi-channel-gateway.md)**.
+
+### Channel-Level Rate Limiting
+
+In addition to the cost-aware rate limiting for MCP/A2A traffic (defined above in Agent Gateway Patterns), messaging channels require **per-user, per-channel rate limiting** to prevent abuse from authenticated users.
+
+Rate limits are configured in `config/settings/security.yaml` under `rate_limiting`, with per-channel settings:
+
+```yaml
+rate_limiting:
+  telegram:
+    messages_per_minute: 30
+    messages_per_hour: 500
+  slack:
+    messages_per_minute: 30
+    messages_per_hour: 500
+  websocket:
+    messages_per_minute: 60
+    messages_per_hour: 1000
+```
+
+Rate limiting is enforced at the gateway level (**[29-multi-channel-gateway.md](29-multi-channel-gateway.md)**) using Redis for distributed state. When a limit is exceeded, the gateway responds with a channel-appropriate cooldown message and does not forward the message to the agent coordinator. Rate-limited messages do not consume agent budget.
+
+This is distinct from MCP/A2A rate limiting (token-based cost budgets) — channel rate limiting is message-count-based because messaging channel abuse is volumetric, not cost-based.
+
 ---
 
 ## Module Structure
@@ -889,6 +960,7 @@ security_schemes:
 
 - [25-agentic-architecture.md](25-agentic-architecture.md) — Internal agent orchestration (conceptual)
 - [26-agentic-pydanticai.md](26-agentic-pydanticai.md) — Internal agent implementation (PydanticAI)
+- [29-multi-channel-gateway.md](29-multi-channel-gateway.md) — Multi-channel delivery, DM pairing, channel rate limiting, session management
 - [03-backend-architecture.md](03-backend-architecture.md) — FastAPI application where MCP/A2A is mounted
 - [09-authentication.md](09-authentication.md) — Base authentication (extended by agent identity layers)
 - [12-observability.md](12-observability.md) — Logging standards (extended by OTel GenAI conventions)

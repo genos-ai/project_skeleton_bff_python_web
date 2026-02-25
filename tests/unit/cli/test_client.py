@@ -59,8 +59,8 @@ class TestAPIClient:
         await client.close()
 
     @pytest.mark.asyncio
-    async def test_client_includes_frontend_header(self, client: APIClient) -> None:
-        """Test client includes X-Frontend-ID header."""
+    async def test_client_includes_source_header(self, client: APIClient) -> None:
+        """Test client includes X-Frontend-ID header for source identification."""
         # Access internal client to check headers
         internal_client = await client._get_client()
         assert internal_client.headers.get("X-Frontend-ID") == "cli"

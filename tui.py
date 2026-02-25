@@ -22,6 +22,7 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import httpx
+import structlog
 
 from modules.backend.core.config import get_app_config
 from modules.backend.core.logging import get_logger, setup_logging
@@ -478,8 +479,7 @@ def main() -> None:
     else:
         setup_logging(level="WARNING", format_type="console")
 
-    import structlog.contextvars
-    structlog.contextvars.bind_contextvars(frontend="web")
+    structlog.contextvars.bind_contextvars(source="tui")
 
     logger.debug("Starting TUI", extra={"debug": debug, "verbose": verbose})
 

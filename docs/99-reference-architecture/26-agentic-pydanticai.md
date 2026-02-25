@@ -1201,7 +1201,7 @@ All downstream log calls automatically include these fields.
 | Tool | `agent.tool.call` | tool_name, agent_name |
 | Tool | `agent.tool.result` | tool_name, duration_ms, success |
 
-Agent logs are written to `data/logs/agents.jsonl` per **12-observability.md**.
+Agent logs are written to `logs/system.jsonl` with `source="agents"` per **12-observability.md**.
 
 ---
 

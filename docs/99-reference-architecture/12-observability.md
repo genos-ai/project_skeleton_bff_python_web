@@ -141,69 +141,80 @@ Development logs may use human-readable format for convenience.
 
 ### Log Storage
 
-Logs are written to JSONL files in `data/logs/`, split by source for easy troubleshooting.
+All logs are written to a single JSONL file: `logs/system.jsonl`. Filter by the `source`
+field to isolate logs from a specific origin.
 
-#### Log Files by Source
+#### Structured Fields
 
-| File | Source | Description |
-|------|--------|-------------|
-| `web.jsonl` | Web frontend | Browser-based requests |
-| `cli.jsonl` | CLI | Command-line interface operations |
-| `mobile.jsonl` | Mobile | Mobile application requests |
-| `telegram.jsonl` | Telegram | Telegram bot interactions |
-| `api.jsonl` | API | Direct API integrations |
-| `database.jsonl` | Database | Database operations and queries |
-| `tasks.jsonl` | Tasks | Background tasks and scheduled jobs |
-| `internal.jsonl` | Internal | Internal service operations |
-| `unknown.jsonl` | Unknown | Requests without source identification |
+Every JSON log record contains:
 
-#### Source Detection
+| Field | Description | Presence |
+|-------|-------------|----------|
+| `timestamp` | ISO 8601 UTC timestamp | Always |
+| `level` | Log level (debug, info, warning, error, critical) | Always |
+| `logger` | Module path (e.g., `modules.backend.api.health`) | Always |
+| `event` | Log message | Always |
+| `func_name` | Function that emitted the log | Always |
+| `lineno` | Line number in source file | Always |
+| `source` | Origin context (web, cli, tui, telegram, api, tasks, internal) | When set explicitly |
+| `request_id` | Request correlation ID | In HTTP request context |
 
-The logging system automatically determines the source:
+Additional fields are added by callers via extra kwargs or structlog context binding.
 
-1. **Explicit source** - Set via `source` field in log call
-2. **Frontend header** - From `X-Frontend-ID` request header
-3. **Logger name** - Pattern matching (e.g., `modules.backend.tasks` → tasks)
-4. **Default** - Falls back to `unknown`
+#### Source Values
+
+Source is always set explicitly — never guessed from logger names.
+
+| Source | Set by |
+|--------|--------|
+| `web` | Middleware, from `X-Frontend-ID: web` header |
+| `cli` | Entry point binding in `cli.py`, `chat.py` |
+| `tui` | Entry point binding in `tui.py` |
+| `mobile` | Middleware, from `X-Frontend-ID: mobile` header |
+| `telegram` | `log_with_source()` in telegram handlers |
+| `api` | Middleware, from `X-Frontend-ID: api` header |
+| `tasks` | `log_with_source()` in background tasks |
+| `internal` | `log_with_source()` in internal services |
 
 #### File Rotation
 
-- **Max size**: 10MB per file
-- **Backups**: 5 rotated files kept (e.g., `web.jsonl.1`, `web.jsonl.2`)
+- **Max size**: 10MB per file (configurable in `logging.yaml`)
+- **Backups**: 5 rotated files kept (`system.jsonl.1`, `system.jsonl.2`, etc.)
 - **Encoding**: UTF-8
 
 #### Troubleshooting with Log Files
 
 ```bash
-# View recent web frontend errors
-grep '"level":"error"' data/logs/web.jsonl | tail -20
+# View recent errors
+jq 'select(.level == "error")' logs/system.jsonl | tail -20
 
 # Find all logs for a specific request
-grep '"request_id":"abc-123"' data/logs/*.jsonl
+jq 'select(.request_id == "abc-123")' logs/system.jsonl
 
-# Watch CLI logs in real-time
-tail -f data/logs/cli.jsonl | jq .
+# Filter by source
+jq 'select(.source == "telegram")' logs/system.jsonl
 
-# Count errors by source
-for f in data/logs/*.jsonl; do
-  echo "$f: $(grep -c '"level":"error"' $f 2>/dev/null || echo 0) errors"
-done
+# Watch logs in real-time
+tail -f logs/system.jsonl | jq .
+
+# Count errors
+jq 'select(.level == "error")' logs/system.jsonl | wc -l
 ```
 
 #### Explicit Source Logging
 
-When automatic detection isn't sufficient, use explicit source:
+For non-HTTP contexts (no middleware), set source explicitly:
 
 ```python
 from modules.backend.core.logging import get_logger, log_with_source
 
 logger = get_logger(__name__)
 
-# Automatic source detection (from frontend header or logger name)
+# In HTTP context: source is set automatically by middleware from X-Frontend-ID header
 logger.info("User logged in", extra={"user_id": 123})
 
-# Explicit source override
-log_with_source(logger, "database", "warning", "Slow query", query_ms=150)
+# Outside HTTP context: set source explicitly
+log_with_source(logger, "tasks", "warning", "Slow query", query_ms=150)
 ```
 
 ### Centralized Logging (Production)
@@ -219,7 +230,7 @@ For production deployments, aggregate logs using Loki:
 #     env: ${APP_ENV}
 ```
 
-Use Promtail or similar agent to ship logs from `data/logs/` to Loki.
+Use Promtail or similar agent to ship logs from `logs/` to Loki.
 
 ---
 
@@ -483,7 +494,7 @@ For production deployments, use Grafana with:
 
 This stack is **not included in the skeleton code**. It's infrastructure that should be deployed separately:
 
-1. **Development**: Use local logs in `data/logs/`, no metrics infrastructure needed
+1. **Development**: Use local logs in `logs/`, no metrics infrastructure needed
 2. **Staging/Production**: Deploy Prometheus + Loki + Grafana stack, configure log shipping
 
 The skeleton provides the hooks (structured logs, health endpoints, request context) that integrate with this stack.

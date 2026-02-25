@@ -30,6 +30,7 @@ from enum import Enum
 from typing import Any
 
 from modules.backend.core.logging import get_logger, log_with_source
+from modules.backend.core.utils import utc_now
 
 logger = get_logger(__name__)
 
@@ -69,7 +70,7 @@ class NotificationResult:
     message_id: int | None = None
     error: str | None = None
     rate_limited: bool = False
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
 
 
 class NotificationService:

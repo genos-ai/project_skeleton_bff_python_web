@@ -4,35 +4,38 @@
 # Available options:
 #   level           - Log level (string: DEBUG|INFO|WARNING|ERROR|CRITICAL)
 #   format          - Output format (string: json|console)
-#   include_timestamp - Include timestamp in logs (boolean)
-#   include_caller  - Include caller info in logs (boolean)
-#   processors      - Log processors to enable (list)
 #   handlers        - Log output handlers (object)
 #     console       - Console output settings (object)
 #       enabled     - Enable console output (boolean)
 #     file          - File output settings (object)
-#       enabled     - Enable file output (boolean)
-#       path        - Log file path (string)
+#       enabled     - Enable JSONL file output (boolean)
+#       path        - Log file path relative to project root (string)
 #       max_bytes   - Max file size before rotation (integer)
-#       backup_count - Number of backup files to keep (integer)
+#       backup_count - Number of rotated backup files to keep (integer)
+#
+# Structured fields in every JSON log record:
+#   timestamp       - ISO 8601 UTC timestamp (automatic)
+#   level           - Log level (automatic)
+#   logger          - Module path, e.g. modules.backend.api.health (automatic)
+#   event           - Log message (automatic)
+#   func_name       - Function that emitted the log (automatic)
+#   lineno          - Line number in source file (automatic)
+#   source          - Origin context, set explicitly by caller (optional)
+#                     Valid values: web, cli, tui, mobile, telegram, api, tasks, internal
+#   request_id      - Request correlation ID, set by middleware (in HTTP context)
+#
+# All records go to a single JSONL file. Filter by 'source' field to isolate
+# logs from a specific origin (e.g. jq 'select(.source == "telegram")').
 # =============================================================================
 
 level: "INFO"
 format: "json"
-include_timestamp: true
-include_caller: true
-
-processors:
-  - add_log_level
-  - add_logger_name
-  - timestamp
-  - format_exc_info
 
 handlers:
   console:
     enabled: true
   file:
     enabled: true
-    path: "data/logs/app.log"
+    path: "logs/system.jsonl"
     max_bytes: 10485760
     backup_count: 5

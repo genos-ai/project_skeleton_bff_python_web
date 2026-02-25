@@ -1,38 +1,36 @@
 """
 Unit Tests for Centralized Logging.
 
-Tests the logging configuration and source-based routing.
+Tests the logging configuration, structured fields, and source handling.
 """
 
 import logging
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 
-class TestLogSources:
-    """Tests for LOG_SOURCES constant."""
+class TestValidSources:
+    """Tests for VALID_SOURCES constant."""
 
-    def test_log_sources_contains_expected_values(self):
-        """Should contain all expected log sources."""
-        from modules.backend.core.logging import LOG_SOURCES
+    def test_valid_sources_contains_expected_values(self):
+        """Should contain all recognized log source values."""
+        from modules.backend.core.logging import VALID_SOURCES
 
-        expected = {"web", "cli", "mobile", "telegram", "api", "database", "tasks", "internal", "unknown"}
-        assert LOG_SOURCES == expected
+        expected = frozenset({"web", "cli", "tui", "mobile", "telegram", "api", "tasks", "internal"})
+        assert VALID_SOURCES == expected
 
-    def test_log_sources_is_set(self):
-        """Should be a set for O(1) lookup."""
-        from modules.backend.core.logging import LOG_SOURCES
+    def test_valid_sources_is_frozenset(self):
+        """Should be a frozenset (immutable)."""
+        from modules.backend.core.logging import VALID_SOURCES
 
-        assert isinstance(LOG_SOURCES, set)
+        assert isinstance(VALID_SOURCES, frozenset)
 
 
 class TestLoggingConfigLoading:
     """Tests for logging configuration loading from YAML."""
 
-    def test_load_logging_config_reads_yaml_file(self, tmp_path):
+    def test_load_logging_config_reads_yaml_file(self):
         """Should load configuration from logging.yaml."""
         from modules.backend.core import logging as logging_module
 
@@ -41,7 +39,12 @@ class TestLoggingConfigLoading:
             "format": "console",
             "handlers": {
                 "console": {"enabled": True},
-                "file": {"enabled": False, "max_bytes": 5242880, "backup_count": 3},
+                "file": {
+                    "enabled": False,
+                    "path": "logs/system.jsonl",
+                    "max_bytes": 5242880,
+                    "backup_count": 3,
+                },
             },
         }
 
@@ -54,12 +57,13 @@ class TestLoggingConfigLoading:
             assert config["format"] == "console"
             assert config["handlers"]["console"]["enabled"] is True
             assert config["handlers"]["file"]["enabled"] is False
+            assert config["handlers"]["file"]["path"] == "logs/system.jsonl"
             assert config["handlers"]["file"]["max_bytes"] == 5242880
             assert config["handlers"]["file"]["backup_count"] == 3
 
         logging_module._logging_config = None
 
-    def test_load_logging_config_raises_if_file_missing(self, tmp_path):
+    def test_load_logging_config_raises_if_file_missing(self):
         """Should raise FileNotFoundError if logging.yaml doesn't exist."""
         from modules.backend.core import logging as logging_module
 
@@ -76,7 +80,7 @@ class TestLoggingConfigLoading:
 
         logging_module._logging_config = None
 
-    def test_config_is_cached(self, tmp_path):
+    def test_config_is_cached(self):
         """Should cache the configuration after first load."""
         from modules.backend.core import logging as logging_module
 
@@ -93,213 +97,6 @@ class TestLoggingConfigLoading:
         logging_module._logging_config = None
 
 
-class TestSourceRoutingHandler:
-    """Tests for SourceRoutingHandler."""
-
-    @pytest.fixture
-    def mock_formatter(self):
-        """Create a mock formatter."""
-        formatter = MagicMock()
-        formatter.format = MagicMock(return_value='{"message": "test"}')
-        return formatter
-
-    @pytest.fixture
-    def mock_logging_config(self):
-        """Create a mock logging configuration."""
-        return {
-            "level": "INFO",
-            "format": "json",
-            "handlers": {
-                "console": {"enabled": True},
-                "file": {
-                    "enabled": True,
-                    "max_bytes": 10485760,
-                    "backup_count": 5,
-                },
-            },
-        }
-
-    @pytest.fixture
-    def temp_logs_dir(self, tmp_path):
-        """Create a temporary logs directory."""
-        logs_dir = tmp_path / "data" / "logs"
-        logs_dir.mkdir(parents=True)
-        return logs_dir
-
-    def test_determines_source_from_explicit_source_field(self, mock_formatter, temp_logs_dir, mock_logging_config):
-        """Should use explicit source field when present."""
-        from modules.backend.core.logging import SourceRoutingHandler
-
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=temp_logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
-            handler = SourceRoutingHandler(mock_formatter)
-
-            record = logging.LogRecord(
-                name="test",
-                level=logging.INFO,
-                pathname="",
-                lineno=0,
-                msg="test message",
-                args=(),
-                exc_info=None,
-            )
-            record.source = "web"
-
-            source = handler._determine_source(record)
-            assert source == "web"
-
-    def test_determines_source_from_frontend_field(self, mock_formatter, temp_logs_dir, mock_logging_config):
-        """Should use frontend field when source not present."""
-        from modules.backend.core.logging import SourceRoutingHandler
-
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=temp_logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
-            handler = SourceRoutingHandler(mock_formatter)
-
-            record = logging.LogRecord(
-                name="test",
-                level=logging.INFO,
-                pathname="",
-                lineno=0,
-                msg="test message",
-                args=(),
-                exc_info=None,
-            )
-            record.frontend = "cli"
-
-            source = handler._determine_source(record)
-            assert source == "cli"
-
-    def test_determines_source_from_logger_name_tasks(self, mock_formatter, temp_logs_dir, mock_logging_config):
-        """Should detect tasks source from logger name."""
-        from modules.backend.core.logging import SourceRoutingHandler
-
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=temp_logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
-            handler = SourceRoutingHandler(mock_formatter)
-
-            record = logging.LogRecord(
-                name="modules.backend.tasks.example",
-                level=logging.INFO,
-                pathname="",
-                lineno=0,
-                msg="test message",
-                args=(),
-                exc_info=None,
-            )
-
-            source = handler._determine_source(record)
-            assert source == "tasks"
-
-    def test_determines_source_from_logger_name_database(self, mock_formatter, temp_logs_dir, mock_logging_config):
-        """Should detect database source from logger name."""
-        from modules.backend.core.logging import SourceRoutingHandler
-
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=temp_logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
-            handler = SourceRoutingHandler(mock_formatter)
-
-            record = logging.LogRecord(
-                name="modules.backend.core.database",
-                level=logging.INFO,
-                pathname="",
-                lineno=0,
-                msg="test message",
-                args=(),
-                exc_info=None,
-            )
-
-            source = handler._determine_source(record)
-            assert source == "database"
-
-    def test_determines_source_from_logger_name_telegram(self, mock_formatter, temp_logs_dir, mock_logging_config):
-        """Should detect telegram source from logger name."""
-        from modules.backend.core.logging import SourceRoutingHandler
-
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=temp_logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
-            handler = SourceRoutingHandler(mock_formatter)
-
-            record = logging.LogRecord(
-                name="modules.telegram.bot",
-                level=logging.INFO,
-                pathname="",
-                lineno=0,
-                msg="test message",
-                args=(),
-                exc_info=None,
-            )
-
-            source = handler._determine_source(record)
-            assert source == "telegram"
-
-    def test_defaults_to_unknown_source(self, mock_formatter, temp_logs_dir, mock_logging_config):
-        """Should default to unknown when no source can be determined."""
-        from modules.backend.core.logging import SourceRoutingHandler
-
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=temp_logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
-            handler = SourceRoutingHandler(mock_formatter)
-
-            record = logging.LogRecord(
-                name="some.random.module",
-                level=logging.INFO,
-                pathname="",
-                lineno=0,
-                msg="test message",
-                args=(),
-                exc_info=None,
-            )
-
-            source = handler._determine_source(record)
-            assert source == "unknown"
-
-    def test_explicit_source_takes_priority_over_frontend(self, mock_formatter, temp_logs_dir, mock_logging_config):
-        """Explicit source should take priority over frontend field."""
-        from modules.backend.core.logging import SourceRoutingHandler
-
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=temp_logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
-            handler = SourceRoutingHandler(mock_formatter)
-
-            record = logging.LogRecord(
-                name="test",
-                level=logging.INFO,
-                pathname="",
-                lineno=0,
-                msg="test message",
-                args=(),
-                exc_info=None,
-            )
-            record.source = "api"
-            record.frontend = "web"
-
-            source = handler._determine_source(record)
-            assert source == "api"
-
-    def test_ignores_invalid_source_values(self, mock_formatter, temp_logs_dir, mock_logging_config):
-        """Should ignore invalid source values and fall back."""
-        from modules.backend.core.logging import SourceRoutingHandler
-
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=temp_logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
-            handler = SourceRoutingHandler(mock_formatter)
-
-            record = logging.LogRecord(
-                name="test",
-                level=logging.INFO,
-                pathname="",
-                lineno=0,
-                msg="test message",
-                args=(),
-                exc_info=None,
-            )
-            record.source = "invalid_source"
-
-            source = handler._determine_source(record)
-            assert source == "unknown"
-
-
 class TestSetupLogging:
     """Tests for setup_logging function."""
 
@@ -313,6 +110,7 @@ class TestSetupLogging:
                 "console": {"enabled": True},
                 "file": {
                     "enabled": True,
+                    "path": "logs/system.jsonl",
                     "max_bytes": 10485760,
                     "backup_count": 5,
                 },
@@ -323,11 +121,7 @@ class TestSetupLogging:
         """Should configure the root logger with correct level."""
         from modules.backend.core.logging import setup_logging
 
-        logs_dir = tmp_path / "data" / "logs"
-        logs_dir.mkdir(parents=True)
-
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
+        with patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
             setup_logging(level="DEBUG", format_type="json", enable_file_logging=False)
 
             root_logger = logging.getLogger()
@@ -338,39 +132,42 @@ class TestSetupLogging:
         from modules.backend.core.logging import setup_logging
 
         with patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
-            # Should not raise even without file logging
             setup_logging(level="INFO", format_type="console", enable_file_logging=False)
 
             root_logger = logging.getLogger()
-            # Should only have console handler
             handler_types = [type(h).__name__ for h in root_logger.handlers]
             assert "StreamHandler" in handler_types
 
-    def test_setup_logging_uses_config_defaults(self, tmp_path, mock_logging_config):
+    def test_setup_logging_with_file_logging_enabled(self, tmp_path, mock_logging_config):
+        """Should create a single RotatingFileHandler for the JSONL file."""
+        from modules.backend.core.logging import setup_logging
+
+        log_file = tmp_path / "logs" / "system.jsonl"
+        mock_logging_config["handlers"]["file"]["path"] = str(log_file)
+
+        with patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config), \
+             patch("modules.backend.core.logging._resolve_log_path", return_value=log_file):
+            setup_logging(level="INFO", format_type="json", enable_file_logging=True)
+
+            root_logger = logging.getLogger()
+            handler_types = [type(h).__name__ for h in root_logger.handlers]
+            assert "RotatingFileHandler" in handler_types
+
+    def test_setup_logging_uses_config_defaults(self, mock_logging_config):
         """Should use values from logging.yaml when not overridden."""
         from modules.backend.core.logging import setup_logging
 
-        logs_dir = tmp_path / "data" / "logs"
-        logs_dir.mkdir(parents=True)
-
-        # Config has level="INFO" and format="json"
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
+        with patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
             setup_logging(enable_file_logging=False)
 
             root_logger = logging.getLogger()
             assert root_logger.level == logging.INFO
 
-    def test_setup_logging_override_takes_precedence(self, tmp_path, mock_logging_config):
+    def test_setup_logging_override_takes_precedence(self, mock_logging_config):
         """Explicit parameters should override config values."""
         from modules.backend.core.logging import setup_logging
 
-        logs_dir = tmp_path / "data" / "logs"
-        logs_dir.mkdir(parents=True)
-
-        # Config has level="INFO" but we override with DEBUG
-        with patch("modules.backend.core.logging._get_logs_dir", return_value=logs_dir), \
-             patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
+        with patch("modules.backend.core.logging._get_logging_config", return_value=mock_logging_config):
             setup_logging(level="DEBUG", enable_file_logging=False)
 
             root_logger = logging.getLogger()
@@ -385,7 +182,6 @@ class TestGetLogger:
         from modules.backend.core.logging import get_logger
 
         logger = get_logger("test.module")
-        # structlog loggers have bind method
         assert hasattr(logger, "bind")
         assert hasattr(logger, "info")
         assert hasattr(logger, "error")
@@ -402,11 +198,11 @@ class TestLogWithSource:
         mock_info = MagicMock()
 
         with patch.object(logger, "info", mock_info):
-            log_with_source(logger, "database", "info", "Test message", extra_field="value")
+            log_with_source(logger, "tasks", "info", "Test message", extra_field="value")
 
             mock_info.assert_called_once_with(
                 "Test message",
-                source="database",
+                source="tasks",
                 extra_field="value",
             )
 
@@ -421,3 +217,24 @@ class TestLogWithSource:
             with patch.object(logger, level, mock_method):
                 log_with_source(logger, "web", level, f"Test {level}")
                 mock_method.assert_called_once()
+
+    def test_log_with_source_raises_on_invalid_level(self):
+        """Should raise AttributeError for invalid log levels (no fallback)."""
+        from modules.backend.core.logging import get_logger, log_with_source
+
+        logger = get_logger("test")
+
+        with pytest.raises(AttributeError):
+            log_with_source(logger, "web", "nonexistent_level", "Test")
+
+
+class TestResolveLogPath:
+    """Tests for _resolve_log_path function."""
+
+    def test_resolve_log_path_relative_to_project_root(self, tmp_path):
+        """Should resolve path relative to project root."""
+        from modules.backend.core.logging import _resolve_log_path
+
+        with patch("modules.backend.core.logging.find_project_root", return_value=tmp_path):
+            result = _resolve_log_path("logs/system.jsonl")
+            assert result == tmp_path / "logs" / "system.jsonl"

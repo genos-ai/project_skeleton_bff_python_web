@@ -27,7 +27,7 @@ class LoggingMiddleware(BaseMiddleware):
     - Processing time
     - Errors
 
-    All logs are routed to data/logs/telegram.jsonl via the source-based logging system.
+    All logs are written to logs/system.jsonl with source="telegram".
 
     Usage:
         # In dispatcher setup

@@ -4,12 +4,17 @@ Centralized Logging Configuration.
 All modules must use this logging setup. Do not create standalone loggers.
 Configuration is loaded from config/settings/logging.yaml.
 
-Features:
-- Structured JSON logging with structlog
-- Source-based JSONL file output (web, cli, telegram, api, database, tasks, unknown)
-- Console output for development
-- Request context binding (request_id, frontend)
-- Configuration driven by logging.yaml
+Structured fields in every JSON log record:
+    timestamp   - ISO 8601 UTC timestamp
+    level       - Log level (debug, info, warning, error, critical)
+    logger      - Module path (e.g., modules.backend.core.middleware)
+    event       - Log message
+    func_name   - Function that emitted the log
+    lineno      - Line number in source file
+    source      - Origin context, set explicitly (web, cli, tui, telegram, etc.)
+    request_id  - Request correlation ID (when in HTTP request context)
+
+Additional fields are passed via extra kwargs or structlog context binding.
 
 Usage:
     from modules.backend.core.logging import get_logger, setup_logging
@@ -24,15 +29,12 @@ Usage:
     logger = get_logger(__name__)
     logger.info("Message", extra={"key": "value"})
 
-Log Files (when enabled via logging.yaml):
-    data/logs/web.jsonl      - Web frontend requests
-    data/logs/cli.jsonl      - CLI operations
-    data/logs/telegram.jsonl - Telegram bot interactions
-    data/logs/api.jsonl      - Direct API calls (integrations)
-    data/logs/database.jsonl - Database operations and queries
-    data/logs/tasks.jsonl    - Background tasks and scheduled jobs
-    data/logs/internal.jsonl - Internal service operations
-    data/logs/unknown.jsonl  - Requests without source identification
+    # Explicit source for non-HTTP contexts
+    from modules.backend.core.logging import log_with_source
+    log_with_source(logger, "telegram", "info", "Update received", chat_id=123)
+
+Log File:
+    logs/system.jsonl — single file, all records, filter by 'source' field
 """
 
 import logging
@@ -46,28 +48,21 @@ from structlog.typing import Processor
 
 from modules.backend.core.config import find_project_root, load_yaml_config
 
-# Valid log sources - logs are routed to files based on these
-LOG_SOURCES = {
-    "web",       # Web frontend requests (browser)
-    "cli",       # CLI operations
-    "mobile",    # Mobile application
-    "telegram",  # Telegram bot
-    "api",       # Direct API integrations
-    "database",  # Database operations
-    "tasks",     # Background tasks
-    "internal",  # Internal services
-    "unknown",   # Unidentified source
-}
+VALID_SOURCES = frozenset({
+    "web",
+    "cli",
+    "tui",
+    "mobile",
+    "telegram",
+    "api",
+    "tasks",
+    "internal",
+})
+"""
+Recognized log source values — for documentation and validation.
+Source is always set explicitly by the caller. Never guessed from logger names.
+"""
 
-# Frontend IDs that map to a different log source file
-FRONTEND_SOURCE_MAP = {
-    "chat": "cli",
-    "tui": "web",
-}
-
-# Module-level state
-_file_handlers: dict[str, logging.Handler] = {}
-_logs_dir: Path | None = None
 _logging_config: dict[str, Any] | None = None
 
 
@@ -97,132 +92,18 @@ def _get_logging_config() -> dict[str, Any]:
     return _load_logging_config()
 
 
-def _get_logs_dir() -> Path:
-    """Get the logs directory path, creating if needed."""
-    global _logs_dir
-    if _logs_dir is None:
-        project_root = find_project_root()
-        _logs_dir = project_root / "data" / "logs"
-        _logs_dir.mkdir(parents=True, exist_ok=True)
-    return _logs_dir
-
-
-def _create_file_handler(
-    source: str,
-    formatter: logging.Formatter,
-    max_bytes: int | None = None,
-    backup_count: int | None = None,
-) -> RotatingFileHandler:
+def _resolve_log_path(configured_path: str) -> Path:
     """
-    Create a rotating file handler for a specific source.
+    Resolve the log file path relative to project root.
 
     Args:
-        source: Log source name (web, cli, telegram, etc.)
-        formatter: Log formatter to use
-        max_bytes: Max file size before rotation (from config if not provided)
-        backup_count: Number of backup files to keep (from config if not provided)
+        configured_path: Path from logging.yaml (relative to project root)
 
     Returns:
-        Configured RotatingFileHandler
+        Absolute Path to the log file
     """
-    config = _get_logging_config()
-    file_config = config["handlers"]["file"]
-
-    if max_bytes is None:
-        max_bytes = file_config["max_bytes"]
-    if backup_count is None:
-        backup_count = file_config["backup_count"]
-
-    logs_dir = _get_logs_dir()
-    log_file = logs_dir / f"{source}.jsonl"
-
-    handler = RotatingFileHandler(
-        filename=str(log_file),
-        maxBytes=max_bytes,
-        backupCount=backup_count,
-        encoding="utf-8",
-    )
-    handler.setFormatter(formatter)
-    return handler
-
-
-class SourceRoutingHandler(logging.Handler):
-    """
-    Handler that routes log records to source-specific file handlers.
-
-    Routes based on:
-    1. 'source' field in log record (explicit)
-    2. 'frontend' field from request context
-    3. Logger name patterns (e.g., 'modules.backend.tasks' -> tasks)
-    4. Defaults to 'unknown'
-    """
-
-    def __init__(self, formatter: logging.Formatter, level: int = logging.DEBUG):
-        super().__init__(level)
-        self.formatter = formatter
-        self._handlers: dict[str, logging.Handler] = {}
-        self._initialize_handlers()
-
-    def _initialize_handlers(self) -> None:
-        """Create file handlers for each source."""
-        for source in LOG_SOURCES:
-            self._handlers[source] = _create_file_handler(source, self.formatter)
-
-    def _determine_source(self, record: logging.LogRecord) -> str:
-        """
-        Determine the log source from the record.
-
-        Priority:
-        1. Explicit 'source' field on the record
-        2. 'frontend' field on the record (set by some middlewares)
-        3. 'frontend' from structlog contextvars (set by RequestContextMiddleware)
-        4. Logger name pattern matching
-        5. Default to 'unknown'
-        """
-        if hasattr(record, "source") and record.source in LOG_SOURCES:
-            return record.source
-
-        if hasattr(record, "frontend"):
-            frontend = FRONTEND_SOURCE_MAP.get(record.frontend, record.frontend)
-            if frontend in LOG_SOURCES:
-                return frontend
-
-        ctx_vars = structlog.contextvars.get_contextvars()
-        ctx_frontend = ctx_vars.get("frontend")
-        if ctx_frontend:
-            mapped = FRONTEND_SOURCE_MAP.get(ctx_frontend, ctx_frontend)
-            if mapped in LOG_SOURCES:
-                return mapped
-
-        logger_name = record.name.lower()
-
-        if "task" in logger_name or "scheduler" in logger_name:
-            return "tasks"
-        if "database" in logger_name or "sqlalchemy" in logger_name:
-            return "database"
-        if "telegram" in logger_name:
-            return "telegram"
-        if "cli" in logger_name:
-            return "cli"
-        if "agent" in logger_name:
-            return "internal"
-
-        return "unknown"
-
-    def emit(self, record: logging.LogRecord) -> None:
-        """Route the log record to the appropriate source handler."""
-        try:
-            source = self._determine_source(record)
-            handler = self._handlers.get(source, self._handlers["unknown"])
-            handler.emit(record)
-        except Exception:
-            self.handleError(record)
-
-    def close(self) -> None:
-        """Close all source handlers."""
-        for handler in self._handlers.values():
-            handler.close()
-        super().close()
+    project_root = find_project_root()
+    return project_root / configured_path
 
 
 def setup_logging(
@@ -241,7 +122,7 @@ def setup_logging(
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Overrides config.
         format_type: Output format ('json' or 'console'). Overrides config.
         enable_console: Whether to enable console output. Overrides config.
-        enable_file_logging: Whether to write to JSONL files. Overrides config.
+        enable_file_logging: Whether to write to JSONL file. Overrides config.
     """
     config = _get_logging_config()
 
@@ -263,7 +144,6 @@ def setup_logging(
 
     log_level = getattr(logging, effective_level.upper())
 
-    # Shared processors for both structlog and stdlib logging
     shared_processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
@@ -272,64 +152,61 @@ def setup_logging(
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.UnicodeDecoder(),
+        structlog.processors.CallsiteParameterAdder(
+            parameters=[
+                structlog.processors.CallsiteParameter.FUNC_NAME,
+                structlog.processors.CallsiteParameter.LINENO,
+            ],
+        ),
     ]
 
-    # JSON formatter for file output (always JSON for files)
     json_formatter = structlog.stdlib.ProcessorFormatter(
         processor=structlog.processors.JSONRenderer(),
         foreign_pre_chain=shared_processors,
     )
 
+    structlog.configure(
+        processors=shared_processors + [
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
+    )
+
     if effective_format == "console":
-        # Human-readable console output for development
-        structlog.configure(
-            processors=shared_processors
-            + [
-                structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-            ],
-            wrapper_class=structlog.stdlib.BoundLogger,
-            context_class=dict,
-            logger_factory=structlog.stdlib.LoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
         console_formatter = structlog.stdlib.ProcessorFormatter(
             processor=structlog.dev.ConsoleRenderer(colors=True),
             foreign_pre_chain=shared_processors,
         )
     else:
-        # JSON output for production
-        structlog.configure(
-            processors=shared_processors
-            + [
-                structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-            ],
-            wrapper_class=structlog.stdlib.BoundLogger,
-            context_class=dict,
-            logger_factory=structlog.stdlib.LoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
         console_formatter = json_formatter
 
-    # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 
-    # Remove existing handlers
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Add console handler if enabled
     if effective_console_enabled:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
 
-    # Add source-routing file handler if enabled
     if effective_file_enabled:
-        source_handler = SourceRoutingHandler(json_formatter, level=log_level)
-        root_logger.addHandler(source_handler)
+        log_path = _resolve_log_path(file_config["path"])
+        log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Suppress noisy loggers
+        file_handler = RotatingFileHandler(
+            filename=str(log_path),
+            maxBytes=file_config["max_bytes"],
+            backupCount=file_config["backup_count"],
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(json_formatter)
+        root_logger.addHandler(file_handler)
+
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
@@ -351,17 +228,21 @@ def log_with_source(logger: Any, source: str, level: str, message: str, **kwargs
     """
     Log a message with an explicit source.
 
-    Use this when you need to override the automatic source detection.
+    Use this when you need to set the source outside of HTTP request context
+    (e.g., in Telegram handlers, background tasks, CLI commands).
 
     Args:
         logger: The logger instance
-        source: Log source (web, cli, telegram, api, database, tasks, internal)
+        source: Log source (web, cli, tui, telegram, api, tasks, internal)
         level: Log level (debug, info, warning, error, critical)
         message: Log message
         **kwargs: Additional context fields
 
+    Raises:
+        AttributeError: If level is not a valid log level
+
     Example:
-        log_with_source(logger, "database", "warning", "Slow query detected", query_ms=150)
+        log_with_source(logger, "tasks", "info", "Task completed", task_id="abc")
     """
-    log_method = getattr(logger, level.lower(), logger.info)
+    log_method = getattr(logger, level.lower())
     log_method(message, source=source, **kwargs)

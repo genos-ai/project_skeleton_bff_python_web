@@ -3,13 +3,13 @@ Unit Tests for Request Context Middleware.
 
 Tests the RequestContextMiddleware functionality including:
 - Request ID generation and propagation
-- Frontend ID extraction and validation
+- Source extraction from X-Frontend-ID header
 - Response timing headers
 - Structlog context binding
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from datetime import datetime
 
 from starlette.requests import Request
@@ -24,7 +24,6 @@ class TestRequestContextMiddleware:
         """Create middleware instance."""
         from modules.backend.core.middleware import RequestContextMiddleware
 
-        # Create a mock app
         mock_app = MagicMock()
         return RequestContextMiddleware(mock_app)
 
@@ -42,116 +41,90 @@ class TestRequestContextMiddleware:
         return request
 
     # -------------------------------------------------------------------------
-    # X-Frontend-ID Tests
+    # Source (X-Frontend-ID) Tests
     # -------------------------------------------------------------------------
 
     @pytest.mark.asyncio
-    async def test_extracts_frontend_id_web(self, middleware, mock_request):
-        """Should extract and set frontend ID when X-Frontend-ID header is 'web'."""
+    async def test_extracts_source_web(self, middleware, mock_request):
+        """Should extract source when X-Frontend-ID header is 'web'."""
         mock_request.headers = {"X-Frontend-ID": "web"}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            assert request.state.frontend == "web"
+            assert request.state.source == "web"
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
             await middleware.dispatch(mock_request, call_next)
 
     @pytest.mark.asyncio
-    async def test_extracts_frontend_id_cli(self, middleware, mock_request):
-        """Should extract and set frontend ID when X-Frontend-ID header is 'cli'."""
+    async def test_extracts_source_cli(self, middleware, mock_request):
+        """Should extract source when X-Frontend-ID header is 'cli'."""
         mock_request.headers = {"X-Frontend-ID": "cli"}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            assert request.state.frontend == "cli"
+            assert request.state.source == "cli"
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
             await middleware.dispatch(mock_request, call_next)
 
     @pytest.mark.asyncio
-    async def test_extracts_frontend_id_mobile(self, middleware, mock_request):
-        """Should extract and set frontend ID when X-Frontend-ID header is 'mobile'."""
-        mock_request.headers = {"X-Frontend-ID": "mobile"}
+    async def test_extracts_source_telegram(self, middleware, mock_request):
+        """Should extract source when X-Frontend-ID header is 'telegram'."""
+        mock_request.headers = {"X-Frontend-ID": "telegram"}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            assert request.state.frontend == "mobile"
+            assert request.state.source == "telegram"
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
             await middleware.dispatch(mock_request, call_next)
 
     @pytest.mark.asyncio
-    async def test_extracts_frontend_id_api(self, middleware, mock_request):
-        """Should extract and set frontend ID when X-Frontend-ID header is 'api'."""
-        mock_request.headers = {"X-Frontend-ID": "api"}
-        mock_response = Response(content="OK", status_code=200)
-
-        async def call_next(request):
-            assert request.state.frontend == "api"
-            return mock_response
-
-        with patch("modules.backend.core.middleware.structlog.contextvars"):
-            await middleware.dispatch(mock_request, call_next)
-
-    @pytest.mark.asyncio
-    async def test_extracts_frontend_id_internal(self, middleware, mock_request):
-        """Should extract and set frontend ID when X-Frontend-ID header is 'internal'."""
-        mock_request.headers = {"X-Frontend-ID": "internal"}
-        mock_response = Response(content="OK", status_code=200)
-
-        async def call_next(request):
-            assert request.state.frontend == "internal"
-            return mock_response
-
-        with patch("modules.backend.core.middleware.structlog.contextvars"):
-            await middleware.dispatch(mock_request, call_next)
-
-    @pytest.mark.asyncio
-    async def test_frontend_id_defaults_to_unknown_when_missing(self, middleware, mock_request):
-        """Should default frontend to 'unknown' when X-Frontend-ID header is missing."""
+    async def test_source_is_none_when_header_missing(self, middleware, mock_request):
+        """Should set source to None when X-Frontend-ID header is missing."""
         mock_request.headers = {}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            assert request.state.frontend == "unknown"
+            assert request.state.source is None
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
             await middleware.dispatch(mock_request, call_next)
 
     @pytest.mark.asyncio
-    async def test_frontend_id_defaults_to_unknown_when_invalid(self, middleware, mock_request):
-        """Should default frontend to 'unknown' when X-Frontend-ID header is not recognized."""
-        mock_request.headers = {"X-Frontend-ID": "invalid-frontend"}
+    async def test_unrecognized_source_passed_through(self, middleware, mock_request):
+        """Should pass through unrecognized X-Frontend-ID values as-is (no fallback)."""
+        mock_request.headers = {"X-Frontend-ID": "custom-client"}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            assert request.state.frontend == "unknown"
+            assert request.state.source == "custom-client"
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
             await middleware.dispatch(mock_request, call_next)
 
     @pytest.mark.asyncio
-    async def test_frontend_id_case_insensitive(self, middleware, mock_request):
+    async def test_source_case_insensitive(self, middleware, mock_request):
         """Should handle X-Frontend-ID header case-insensitively."""
         mock_request.headers = {"X-Frontend-ID": "WEB"}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            assert request.state.frontend == "web"
+            assert request.state.source == "web"
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
             await middleware.dispatch(mock_request, call_next)
 
     @pytest.mark.asyncio
-    async def test_frontend_id_bound_to_structlog(self, middleware, mock_request):
-        """Should bind frontend ID to structlog context."""
+    async def test_source_bound_to_structlog_when_present(self, middleware, mock_request):
+        """Should bind source to structlog context when X-Frontend-ID is provided."""
         mock_request.headers = {"X-Frontend-ID": "cli"}
         mock_response = Response(content="OK", status_code=200)
 
@@ -162,7 +135,22 @@ class TestRequestContextMiddleware:
             await middleware.dispatch(mock_request, call_next)
 
             call_kwargs = mock_ctx.bind_contextvars.call_args[1]
-            assert call_kwargs["frontend"] == "cli"
+            assert call_kwargs["source"] == "cli"
+
+    @pytest.mark.asyncio
+    async def test_source_not_bound_to_structlog_when_missing(self, middleware, mock_request):
+        """Should not bind source to structlog context when header is missing."""
+        mock_request.headers = {}
+        mock_response = Response(content="OK", status_code=200)
+
+        async def call_next(request):
+            return mock_response
+
+        with patch("modules.backend.core.middleware.structlog.contextvars") as mock_ctx:
+            await middleware.dispatch(mock_request, call_next)
+
+            call_kwargs = mock_ctx.bind_contextvars.call_args[1]
+            assert "source" not in call_kwargs
 
     # -------------------------------------------------------------------------
     # X-Request-ID Tests
@@ -174,10 +162,9 @@ class TestRequestContextMiddleware:
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            # Verify request_id was set on state
             assert hasattr(request.state, "request_id")
             assert request.state.request_id is not None
-            assert len(request.state.request_id) == 36  # UUID format
+            assert len(request.state.request_id) == 36
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
@@ -240,7 +227,6 @@ class TestRequestContextMiddleware:
 
         assert captured_start_time is not None
         assert isinstance(captured_start_time, datetime)
-        # Should be timezone-naive
         assert captured_start_time.tzinfo is None
 
     # -------------------------------------------------------------------------
@@ -250,6 +236,7 @@ class TestRequestContextMiddleware:
     @pytest.mark.asyncio
     async def test_binds_context_to_structlog(self, middleware, mock_request):
         """Should bind request context to structlog contextvars."""
+        mock_request.headers = {"X-Frontend-ID": "web"}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
@@ -258,14 +245,11 @@ class TestRequestContextMiddleware:
         with patch("modules.backend.core.middleware.structlog.contextvars") as mock_ctx:
             await middleware.dispatch(mock_request, call_next)
 
-            # Verify context was cleared at start
             mock_ctx.clear_contextvars.assert_called()
-
-            # Verify context was bound
             mock_ctx.bind_contextvars.assert_called_once()
             call_kwargs = mock_ctx.bind_contextvars.call_args[1]
             assert "request_id" in call_kwargs
-            assert "frontend" in call_kwargs
+            assert call_kwargs["source"] == "web"
             assert call_kwargs["method"] == "GET"
             assert call_kwargs["path"] == "/api/v1/test"
 
@@ -280,7 +264,6 @@ class TestRequestContextMiddleware:
         with patch("modules.backend.core.middleware.structlog.contextvars") as mock_ctx:
             await middleware.dispatch(mock_request, call_next)
 
-            # Should be called twice: once at start, once in finally
             assert mock_ctx.clear_contextvars.call_count == 2
 
     @pytest.mark.asyncio
@@ -294,7 +277,6 @@ class TestRequestContextMiddleware:
             with pytest.raises(ValueError):
                 await middleware.dispatch(mock_request, call_next)
 
-            # Context should still be cleared in finally block
             assert mock_ctx.clear_contextvars.call_count == 2
 
     @pytest.mark.asyncio
@@ -318,23 +300,5 @@ class TestRequestContextMiddleware:
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
-            # Should not raise
             response = await middleware.dispatch(mock_request, call_next)
             assert response.status_code == 200
-
-
-class TestKnownFrontends:
-    """Tests for the KNOWN_FRONTENDS constant."""
-
-    def test_known_frontends_contains_expected_values(self):
-        """Should contain all expected frontend identifiers."""
-        from modules.backend.core.middleware import KNOWN_FRONTENDS
-
-        expected = {"web", "cli", "mobile", "telegram", "api", "internal"}
-        assert KNOWN_FRONTENDS == expected
-
-    def test_known_frontends_is_set(self):
-        """Should be a set for O(1) lookup."""
-        from modules.backend.core.middleware import KNOWN_FRONTENDS
-
-        assert isinstance(KNOWN_FRONTENDS, set)

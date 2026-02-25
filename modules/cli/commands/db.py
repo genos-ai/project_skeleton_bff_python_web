@@ -48,9 +48,9 @@ def upgrade(
     Upgrade database to a revision.
 
     Examples:
-        cli_typer.py db upgrade                  # Upgrade to latest
-        cli_typer.py db upgrade --revision head   # Upgrade to latest
-        cli_typer.py db upgrade -r abc123         # Upgrade to specific revision
+        cli_typer_example.py db upgrade                  # Upgrade to latest
+        cli_typer_example.py db upgrade --revision head   # Upgrade to latest
+        cli_typer_example.py db upgrade -r abc123         # Upgrade to specific revision
     """
     _check_alembic()
     console.print(f"[bold]Upgrading database to revision: {revision}[/bold]\n")
@@ -66,9 +66,9 @@ def downgrade(
     Downgrade database to a revision.
 
     Examples:
-        cli_typer.py db downgrade --revision -1       # Downgrade one revision
-        cli_typer.py db downgrade -r abc123            # Downgrade to specific revision
-        cli_typer.py db downgrade --revision base      # Downgrade to initial state
+        cli_typer_example.py db downgrade --revision -1       # Downgrade one revision
+        cli_typer_example.py db downgrade -r abc123            # Downgrade to specific revision
+        cli_typer_example.py db downgrade --revision base      # Downgrade to initial state
     """
     _check_alembic()
     console.print(f"[bold]Downgrading database to revision: {revision}[/bold]\n")
@@ -82,7 +82,7 @@ def current() -> None:
     Show current database revision.
 
     Examples:
-        cli_typer.py db current
+        cli_typer_example.py db current
     """
     _check_alembic()
     console.print("[bold]Current database revision:[/bold]\n")
@@ -95,7 +95,7 @@ def history() -> None:
     Show migration history.
 
     Examples:
-        cli_typer.py db history
+        cli_typer_example.py db history
     """
     _check_alembic()
     console.print("[bold]Migration history:[/bold]\n")
@@ -110,8 +110,8 @@ def generate(
     Auto-generate a new migration from model changes.
 
     Examples:
-        cli_typer.py db generate -m "add users table"
-        cli_typer.py db generate --message "add email column"
+        cli_typer_example.py db generate -m "add users table"
+        cli_typer_example.py db generate --message "add email column"
     """
     _check_alembic()
     console.print(f"[bold]Generating migration: {message}[/bold]\n")
@@ -127,7 +127,7 @@ def revision(
     Create a new empty migration file.
 
     Examples:
-        cli_typer.py db revision -m "manual migration"
+        cli_typer_example.py db revision -m "manual migration"
     """
     _check_alembic()
     console.print(f"[bold]Creating migration: {message}[/bold]\n")

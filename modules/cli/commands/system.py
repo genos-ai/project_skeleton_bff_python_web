@@ -53,9 +53,9 @@ def config(
     Shows all configuration or a specific section.
 
     Examples:
-        cli_typer.py system config                        # Show all sections
-        cli_typer.py system config --section application   # Show application only
-        cli_typer.py system config -s security             # Show security only
+        cli_typer_example.py system config                        # Show all sections
+        cli_typer_example.py system config --section application   # Show application only
+        cli_typer_example.py system config -s security             # Show security only
     """
     try:
         from modules.backend.core.config import get_app_config

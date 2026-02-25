@@ -27,8 +27,8 @@ def status(
     Shows basic health or detailed component status.
 
     Examples:
-        cli_typer.py health status
-        cli_typer.py health status -d
+        cli_typer_example.py health status
+        cli_typer_example.py health status -d
     """
     asyncio.run(_status(detailed))
 
@@ -57,7 +57,7 @@ async def _status(detailed: bool) -> None:
     except Exception as e:
         if "Connection refused" in str(e) or "ConnectError" in str(e):
             console.print("[red]Error: Cannot connect to backend[/red]")
-            console.print("[dim]Is the server running? Start with: cli_typer.py server start[/dim]")
+            console.print("[dim]Is the server running? Start with: cli_typer_example.py server start[/dim]")
         else:
             console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
@@ -119,7 +119,7 @@ def ping() -> None:
     Returns success if backend responds, failure otherwise.
 
     Examples:
-        cli_typer.py health ping
+        cli_typer_example.py health ping
     """
     asyncio.run(_ping())
 
@@ -155,7 +155,7 @@ def check() -> None:
     Does NOT require running server. Tests that modules load correctly.
 
     Examples:
-        cli_typer.py health check
+        cli_typer_example.py health check
     """
     console.print("[bold]Checking application health...[/bold]\n")
 

@@ -39,9 +39,9 @@ def start(
     Start the FastAPI development server.
 
     Examples:
-        cli_typer.py server start
-        cli_typer.py server start --reload
-        cli_typer.py server start --host 0.0.0.0 --port 8080
+        cli_typer_example.py server start
+        cli_typer_example.py server start --reload
+        cli_typer_example.py server start --host 0.0.0.0 --port 8080
     """
     app_config = _get_app_config()
     server_config = app_config.application["server"]
@@ -81,8 +81,8 @@ def worker(
     Start the Taskiq background task worker.
 
     Examples:
-        cli_typer.py server worker
-        cli_typer.py server worker --workers 4
+        cli_typer_example.py server worker
+        cli_typer_example.py server worker --workers 4
     """
     try:
         from modules.backend.core.config import get_redis_url
@@ -119,7 +119,7 @@ def scheduler() -> None:
     WARNING: Run only ONE scheduler instance to avoid duplicate task execution.
 
     Examples:
-        cli_typer.py server scheduler
+        cli_typer_example.py server scheduler
     """
     try:
         from modules.backend.core.config import get_redis_url

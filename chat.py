@@ -22,6 +22,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import click
+import structlog
 
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -61,7 +62,7 @@ async def send_message(base_url: str, timeout: float, message: str, session_id: 
             )
         except httpx.ConnectError:
             click.echo(click.style("Error: Backend is not reachable.", fg="red"), err=True)
-            click.echo("Start it with: python cli.py --action server", err=True)
+            click.echo("Start it with: python cli.py --service server", err=True)
             return 1
 
     if raw:
@@ -218,8 +219,7 @@ def main(message: str | None, agent: str | None, list_agents: bool, ping: bool, 
     else:
         setup_logging(level="WARNING", format_type="console")
 
-    import structlog.contextvars
-    structlog.contextvars.bind_contextvars(frontend="cli")
+    structlog.contextvars.bind_contextvars(source="cli")
 
     if not message and not ping and not list_agents:
         click.echo("Error: provide --message, --ping, or --list-agents.", err=True)

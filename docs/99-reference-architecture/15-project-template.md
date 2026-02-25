@@ -193,7 +193,7 @@ The `data/` directory contains runtime artifacts. Not tracked in git.
 
 | Path | Purpose |
 |------|---------|
-| `data/logs/` | Application logs |
+| `logs/` | Application logs |
 | `data/cache/` | Temporary/cached files |
 
 ---
@@ -412,7 +412,7 @@ tests/
    ```
 7. Run database migrations:
    ```bash
-   python cli.py --action migrate --migrate-action upgrade
+   python cli.py --service migrate --migrate-action upgrade
    ```
 8. Start development servers:
    ```bash

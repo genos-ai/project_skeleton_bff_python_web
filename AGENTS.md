@@ -39,7 +39,7 @@ Model Layer (modules/backend/models/)     → SQLAlchemy entities
 
 ### Entry Points
 
-- `cli.py` — Click-based CLI (--action server|worker|scheduler|health|config|test|migrate|info)
+- `cli.py` — Click-based CLI (--service server|worker|scheduler|health|config|test|migrate|info --action start|stop|restart|status)
 - `cli_typer_example.py` — Typer-based CLI with command groups (server, db, test, health, system, shell)
 - `modules/backend/main.py` — FastAPI application (for uvicorn)
 
@@ -48,9 +48,9 @@ Model Layer (modules/backend/models/)     → SQLAlchemy entities
 | Module | Purpose |
 |--------|---------|
 | `modules/backend/core/config.py` | Configuration loading (YAML + .env) |
-| `modules/backend/core/logging.py` | Centralized structured logging (structlog) |
+| `modules/backend/core/logging.py` | Centralized structured logging (structlog → logs/system.jsonl) |
 | `modules/backend/core/exceptions.py` | Custom exception hierarchy |
-| `modules/backend/core/middleware.py` | Request context (X-Request-ID, X-Frontend-ID) |
+| `modules/backend/core/middleware.py` | Request context (X-Request-ID, X-Frontend-ID → source field) |
 | `modules/backend/core/database.py` | Async SQLAlchemy engine and sessions |
 | `modules/backend/core/security.py` | JWT, password hashing, API keys |
 | `modules/backend/core/utils.py` | Utilities (utc_now) |

@@ -82,7 +82,7 @@ project/
 | modules/backend/schemas/ | Pydantic models for API request/response |
 | modules/backend/services/ | Business logic, orchestration |
 | tests/ | All test files |
-| data/logs/ | Application logs |
+| logs/ | Application logs |
 
 ---
 
@@ -326,7 +326,7 @@ Summary:
 - **Standard**: Taskiq with Redis
 - **On-demand tasks**: Triggered by code via `.kiq()`
 - **Scheduled tasks**: Cron-based via TaskiqScheduler
-- **CLI**: `python cli.py --action worker` and `--action scheduler`
+- **CLI**: `python cli.py --service worker` and `--action scheduler`
 
 ---
 

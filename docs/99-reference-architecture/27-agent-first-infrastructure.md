@@ -625,7 +625,7 @@ AI agents move **16x more data** than human users (Obsidian Security, 2025). Beh
 
 ### Log Source
 
-Agent infrastructure logs are written to `data/logs/agents.jsonl` per the source-routing in **12-observability.md**. Add `"agents"` to the `LOG_SOURCES` set in `modules/backend/core/logging.py` if not already present.
+Agent infrastructure logs are written to `logs/system.jsonl` with `source="agents"` per **12-observability.md**.
 
 ---
 
@@ -749,7 +749,7 @@ The pairing protocol:
 1. Unknown sender messages through any channel
 2. Gateway generates a short alphanumeric code with configurable TTL (stored in Redis)
 3. Gateway responds: "Send this code to the admin to get access: `ABC123`"
-4. Admin approves: `python cli.py --action approve-pairing --code ABC123`
+4. Admin approves: `python cli.py --service approve-pairing --code ABC123`
 5. Sender's channel-specific ID added to persistent allowlist
 6. Subsequent messages processed normally
 
@@ -949,7 +949,6 @@ security_schemes:
 ### Phase 5: Observability and Security
 
 - [ ] Add OpenTelemetry GenAI attributes to MCP/A2A request handling
-- [ ] Add `"agents"` to LOG_SOURCES in logging configuration
 - [ ] Implement behavioral baselining for external agent consumers
 - [ ] Run DeepTeam red team evaluation on MCP/A2A interfaces
 - [ ] Map platform defenses to OWASP Agentic Top 10

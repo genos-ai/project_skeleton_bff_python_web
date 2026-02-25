@@ -31,13 +31,13 @@ class TestExampleCLI:
         # Assert
         assert result.returncode == 0
         assert "Usage:" in result.stdout
-        assert "--action" in result.stdout
+        assert "--service" in result.stdout
 
     def test_info_action_succeeds(self):
         """Should successfully display info."""
         # Act
         result = subprocess.run(
-            [sys.executable, "cli.py", "--action", "info"],
+            [sys.executable, "cli.py", "--service", "info"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -51,7 +51,7 @@ class TestExampleCLI:
         """Should display configuration from YAML files."""
         # Act
         result = subprocess.run(
-            [sys.executable, "cli.py", "--action", "config"],
+            [sys.executable, "cli.py", "--service", "config"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -66,7 +66,7 @@ class TestExampleCLI:
         """Should run health checks and report results."""
         # Act
         result = subprocess.run(
-            [sys.executable, "cli.py", "--action", "health"],
+            [sys.executable, "cli.py", "--service", "health"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -83,7 +83,7 @@ class TestExampleCLI:
         """Should produce more output with --verbose flag."""
         # Act - without verbose
         result_quiet = subprocess.run(
-            [sys.executable, "cli.py", "--action", "info"],
+            [sys.executable, "cli.py", "--service", "info"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -91,7 +91,7 @@ class TestExampleCLI:
 
         # Act - with verbose
         result_verbose = subprocess.run(
-            [sys.executable, "cli.py", "--action", "health", "--verbose"],
+            [sys.executable, "cli.py", "--service", "health", "--verbose"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -107,7 +107,7 @@ class TestExampleCLI:
         """Should produce debug-level output with --debug flag."""
         # Act
         result = subprocess.run(
-            [sys.executable, "cli.py", "--action", "health", "--debug"],
+            [sys.executable, "cli.py", "--service", "health", "--debug"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -124,7 +124,7 @@ class TestExampleCLI:
         """Should show error for invalid action."""
         # Act
         result = subprocess.run(
-            [sys.executable, "cli.py", "--action", "invalid"],
+            [sys.executable, "cli.py", "--service", "invalid"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -138,7 +138,7 @@ class TestExampleCLI:
         """Should report when no tests are found."""
         # Act - run tests in unit directory (may have no tests yet)
         result = subprocess.run(
-            [sys.executable, "cli.py", "--action", "test", "--test-type", "unit"],
+            [sys.executable, "cli.py", "--service", "test", "--test-type", "unit"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -159,7 +159,7 @@ class TestExampleCLIFromDifferentDirectory:
 
         # Act - try to import and run from temp directory
         result = subprocess.run(
-            [sys.executable, str(example_script), "--action", "info"],
+            [sys.executable, str(example_script), "--service", "info"],
             cwd=tmp_path,  # Different directory
             capture_output=True,
             text=True,

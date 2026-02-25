@@ -109,7 +109,7 @@ OpenClaw's popularity is not driven by agent orchestration sophistication. The a
 4. Installs the Gateway as a system service (auto-start on boot)
 5. Runs a diagnostic check (`openclaw doctor`) to surface misconfigurations
 
-Our equivalent is `python cli.py --action health`, which validates that modules load and configuration exists. It does not configure anything. The gap between "validate what exists" and "guide you through setup" is the difference between a developer tool and a product.
+Our equivalent is `python cli.py --service health`, which validates that modules load and configuration exists. It does not configure anything. The gap between "validate what exists" and "guide you through setup" is the difference between a developer tool and a product.
 
 ### Immediate value
 
@@ -208,7 +208,7 @@ This means:
 | Capability | OpenClaw | Our Architecture |
 |---|---|---|
 | **Channel breadth** | 14+ channels shipping (WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, iMessage, Teams, Matrix, WebChat, etc.) | Telegram module built but not wired; CLI, TUI, and web shell exist |
-| **Onboarding experience** | `openclaw onboard --install-daemon` — guided wizard, auto-generates secrets, installs daemon | `python cli.py --action health` — validates only, does not configure |
+| **Onboarding experience** | `openclaw onboard --install-daemon` — guided wizard, auto-generates secrets, installs daemon | `python cli.py --service health` — validates only, does not configure |
 | **Always-on daemon** | Installed as system service, auto-starts on boot, auto-reconnects channels | Runs on-demand via CLI, no daemon mode |
 | **Cost visibility to users** | `/status`, `/usage`, real-time in-chat cost footers | Cost tracking specced (doc 25/26) but not surfaced to users |
 | **Session continuity across channels** | Same conversation accessible from any channel via the Gateway | Each channel module is independent, no cross-channel session |

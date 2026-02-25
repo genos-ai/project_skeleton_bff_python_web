@@ -29,7 +29,7 @@ Usage:
     register_scheduled_tasks()
 
     # Start scheduler
-    python cli.py --action scheduler
+    python cli.py --service scheduler
 """
 
 from typing import Any

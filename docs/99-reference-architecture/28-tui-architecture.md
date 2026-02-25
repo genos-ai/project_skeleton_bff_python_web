@@ -146,7 +146,7 @@ The WebSocket subscribes to events relevant to the current session. When the use
 ### X-Frontend-ID
 
 The TUI sends `X-Frontend-ID: tui` with every request per **12-observability.md**. This enables:
-- Log filtering by source (`data/logs/tui.jsonl`)
+- Log filtering by source (`logs/system.jsonl` with `source="tui"`)
 - Per-frontend metrics in dashboards
 - Debugging TUI-specific issues
 
@@ -471,7 +471,7 @@ tui:
 python -m modules.tui
 
 # Or via CLI
-python cli.py --action tui
+python cli.py --service tui
 ```
 
 ### Textual Web (Browser)

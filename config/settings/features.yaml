@@ -38,7 +38,7 @@ api_request_logging: true
 # -----------------------------------------------------------------------------
 # Channels (all disabled by default — must explicitly enable)
 # -----------------------------------------------------------------------------
-channel_telegram_enabled: false
+channel_telegram_enabled: true
 channel_slack_enabled: false
 channel_discord_enabled: false
 channel_whatsapp_enabled: false

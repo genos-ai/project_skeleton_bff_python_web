@@ -943,7 +943,7 @@ The kill switch halts execution immediately:
 
 **API:** `POST /api/v1/agent/cancel` with body `{"scope": "task|plan|all", "id": "uuid"}`
 
-**CLI:** `python cli.py --action agent-cancel --scope plan --id <uuid>`
+**CLI:** `python cli.py --service agent-cancel --scope plan --id <uuid>`
 
 **Behavior:**
 - All running AgentTasks in scope set to `cancelled`
@@ -1061,7 +1061,7 @@ Every agent execution produces structured log entries:
 
 ### Log Source
 
-Agent logs are written to `data/logs/agents.jsonl` per the source-based logging from 12-observability.md.
+Agent logs are written to `logs/system.jsonl` with `source="agents"` per 12-observability.md.
 
 ### Reasoning Chain Storage
 

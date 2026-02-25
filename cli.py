@@ -1,30 +1,33 @@
 #!/usr/bin/env python3
 """
-Example Entry Script.
+BFF Application CLI.
 
-Example entry point demonstrating CLI patterns, logging, and configuration.
-All functionality is accessible through command-line options.
+Primary entry point for all application operations.
+Use --service to select what to run, --action to control lifecycle.
 
 Usage:
     python cli.py --help
-    python cli.py --action server --verbose
-    python cli.py --action health --debug
-    python cli.py --action config
-    python cli.py --action test --test-type unit
+    python cli.py --service server --verbose
+    python cli.py --service server --action stop
+    python cli.py --service health --debug
+    python cli.py --service config
+    python cli.py --service test --test-type unit
 """
 
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
 
 import click
 
-# Ensure project root is in path for absolute imports
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from modules.backend.core.logging import get_logger, setup_logging
+
+LONG_RUNNING_SERVICES = {"server", "worker", "scheduler", "telegram-poll"}
 
 
 def validate_project_root() -> Path:
@@ -38,12 +41,59 @@ def validate_project_root() -> Path:
     return PROJECT_ROOT
 
 
+def _find_process_on_port(port: int) -> list[int]:
+    """Find PIDs listening on a port."""
+    result = subprocess.run(
+        ["lsof", "-ti", f":{port}"],
+        capture_output=True, text=True,
+    )
+    pids = result.stdout.strip().split("\n")
+    return [int(p) for p in pids if p.strip()]
+
+
+def _service_stop(logger, service: str, port: int) -> None:
+    """Stop a running service by finding its process on the port."""
+    pids = _find_process_on_port(port)
+    if not pids:
+        click.echo(f"No {service} running on port {port}.")
+        return
+
+    for pid in pids:
+        os.kill(pid, signal.SIGINT)
+        logger.info("Sent SIGINT", extra={"service": service, "pid": pid, "port": port})
+
+    click.echo(f"{service.title()} on port {port} stopped (PID: {', '.join(str(p) for p in pids)}).")
+
+
+def _service_status(logger, service: str, port: int) -> None:
+    """Check if a service is running on a port."""
+    pids = _find_process_on_port(port)
+    if pids:
+        click.echo(f"{service.title()} is running on port {port} (PID: {', '.join(str(p) for p in pids)}).")
+    else:
+        click.echo(f"{service.title()} is not running on port {port}.")
+
+
+def _get_service_port(port: int | None) -> int:
+    """Get the port from argument or config."""
+    if port is not None:
+        return port
+    from modules.backend.core.config import get_app_config
+    return get_app_config().application["server"]["port"]
+
+
 @click.command()
 @click.option(
-    "--action",
-    type=click.Choice(["server", "stop", "worker", "scheduler", "health", "config", "test", "info", "migrate", "telegram-poll"]),
+    "--service", "-s",
+    type=click.Choice(["server", "worker", "scheduler", "health", "config", "test", "info", "migrate", "telegram-poll"]),
     default="info",
-    help="Action to perform.",
+    help="Service or command to run.",
+)
+@click.option(
+    "--action", "-a",
+    type=click.Choice(["start", "stop", "restart", "status"]),
+    default="start",
+    help="Lifecycle action for long-running services (server, worker, scheduler, telegram-poll).",
 )
 @click.option(
     "--verbose", "-v",
@@ -58,53 +108,54 @@ def validate_project_root() -> Path:
 @click.option(
     "--host",
     default=None,
-    help="Server host (for server action).",
+    help="Server host.",
 )
 @click.option(
     "--port",
     default=None,
     type=int,
-    help="Server port (for server action).",
+    help="Server port.",
 )
 @click.option(
     "--reload",
     is_flag=True,
-    help="Enable auto-reload (for server action).",
+    help="Enable auto-reload (server only).",
 )
 @click.option(
     "--test-type",
     type=click.Choice(["all", "unit", "integration", "e2e"]),
     default="all",
-    help="Test type to run (for test action).",
+    help="Test type to run.",
 )
 @click.option(
     "--coverage",
     is_flag=True,
-    help="Run tests with coverage (for test action).",
+    help="Run tests with coverage.",
 )
 @click.option(
     "--migrate-action",
     type=click.Choice(["upgrade", "downgrade", "current", "history", "autogenerate"]),
     default="current",
-    help="Migration action (for migrate action).",
+    help="Migration action.",
 )
 @click.option(
     "--revision",
     default="head",
-    help="Target revision for upgrade/downgrade (default: head).",
+    help="Target revision for upgrade/downgrade.",
 )
 @click.option(
     "-m", "--message",
     default=None,
-    help="Migration message (for autogenerate action).",
+    help="Migration message (for autogenerate).",
 )
 @click.option(
     "--workers",
     default=1,
     type=int,
-    help="Number of worker processes (for worker action).",
+    help="Number of worker processes.",
 )
 def main(
+    service: str,
     action: str,
     verbose: bool,
     debug: bool,
@@ -119,50 +170,33 @@ def main(
     workers: int,
 ) -> None:
     """
-    BFF Application Entry Point.
+    BFF Application CLI.
 
-    Run the application server, background worker, task scheduler,
-    check health, view configuration, or run tests.
+    Use --service to select what to run. For long-running services
+    (server, worker, scheduler, telegram-poll), use --action to
+    control lifecycle (start/stop/restart/status).
 
+    \b
     Examples:
-
-        # Start development server
-        python cli.py --action server --reload --verbose
-
-        # Start background task worker
-        python cli.py --action worker --verbose
-
-        # Start task scheduler (for cron-based tasks)
-        python cli.py --action scheduler --verbose
-
-        # Check application health
-        python cli.py --action health --debug
-
-        # View loaded configuration
-        python cli.py --action config
-
-        # Run unit tests with coverage
-        python cli.py --action test --test-type unit --coverage
-
-        # Show application info
-        python cli.py --action info
-
-        # Database migrations
-        python cli.py --action migrate --migrate-action current
-        python cli.py --action migrate --migrate-action upgrade
-        python cli.py --action migrate --migrate-action autogenerate -m "add users table"
-
-        # Telegram bot (polling mode for local development)
-        python cli.py --action telegram-poll --verbose
-
-        # Stop a running server
-        python cli.py --action stop
-        python cli.py --action stop --port 8099
+        python cli.py --service server --verbose
+        python cli.py --service server --action stop
+        python cli.py --service server --action restart --port 8099
+        python cli.py --service server --action status
+        python cli.py --service worker --verbose
+        python cli.py --service worker --action stop
+        python cli.py --service scheduler --verbose
+        python cli.py --service health --debug
+        python cli.py --service config
+        python cli.py --service test --test-type unit --coverage
+        python cli.py --service info
+        python cli.py --service migrate --migrate-action current
+        python cli.py --service migrate --migrate-action upgrade
+        python cli.py --service migrate --migrate-action autogenerate -m "add users table"
+        python cli.py --service telegram-poll --verbose
+        python cli.py --service telegram-poll --action stop
     """
-    # Validate project root
     validate_project_root()
 
-    # Configure logging based on verbosity
     if debug:
         log_level = "DEBUG"
     elif verbose:
@@ -172,33 +206,45 @@ def main(
 
     setup_logging(level=log_level, format_type="console")
 
-    import structlog.contextvars
-    structlog.contextvars.bind_contextvars(frontend="cli")
+    structlog.contextvars.bind_contextvars(source="cli")
 
     logger = get_logger(__name__)
 
-    logger.debug("Starting application", extra={"action": action, "log_level": log_level})
+    logger.debug("CLI invoked", extra={"service": service, "action": action, "log_level": log_level})
 
-    # Dispatch to action handlers
-    if action == "server":
+    # Handle lifecycle actions for long-running services
+    if service in LONG_RUNNING_SERVICES and action != "start":
+        service_port = _get_service_port(port)
+
+        if action == "stop":
+            _service_stop(logger, service, service_port)
+            return
+        elif action == "status":
+            _service_status(logger, service, service_port)
+            return
+        elif action == "restart":
+            _service_stop(logger, service, service_port)
+            import time
+            time.sleep(2)
+
+    # Dispatch to service handlers (start or one-shot)
+    if service == "server":
         run_server(logger, host, port, reload)
-    elif action == "stop":
-        stop_server(logger, port)
-    elif action == "worker":
+    elif service == "worker":
         run_worker(logger, workers)
-    elif action == "scheduler":
+    elif service == "scheduler":
         run_scheduler(logger)
-    elif action == "health":
+    elif service == "health":
         check_health(logger)
-    elif action == "config":
+    elif service == "config":
         show_config(logger)
-    elif action == "test":
+    elif service == "test":
         run_tests(logger, test_type, coverage)
-    elif action == "info":
+    elif service == "info":
         show_info(logger)
-    elif action == "migrate":
+    elif service == "migrate":
         run_migrations(logger, migrate_action, revision, message)
-    elif action == "telegram-poll":
+    elif service == "telegram-poll":
         run_telegram_poll(logger)
 
 
@@ -244,47 +290,6 @@ def run_server(logger, host: str | None, port: int | None, reload: bool) -> None
     except subprocess.CalledProcessError as e:
         logger.error("Server failed to start", extra={"exit_code": e.returncode})
         sys.exit(e.returncode)
-
-
-def stop_server(logger, port: int | None) -> None:
-    """Stop a running server by finding its process on the configured port."""
-    import signal
-
-    from modules.backend.core.config import get_app_config
-
-    try:
-        server_config = get_app_config().application["server"]
-    except Exception as e:
-        logger.error("Failed to load configuration.", extra={"error": str(e)})
-        click.echo(click.style("Error: Could not load configuration.", fg="red"), err=True)
-        sys.exit(1)
-
-    server_port = port or server_config["port"]
-
-    try:
-        import subprocess as sp
-
-        result = sp.run(
-            ["lsof", "-ti", f":{server_port}"],
-            capture_output=True, text=True,
-        )
-        pids = result.stdout.strip().split("\n")
-        pids = [p.strip() for p in pids if p.strip()]
-
-        if not pids:
-            click.echo(f"No server running on port {server_port}.")
-            return
-
-        for pid in pids:
-            os.kill(int(pid), signal.SIGINT)
-            logger.info("Sent SIGINT to process", extra={"pid": pid, "port": server_port})
-
-        click.echo(f"Server on port {server_port} stopped (PID: {', '.join(pids)}).")
-
-    except Exception as e:
-        logger.error("Failed to stop server", extra={"error": str(e)})
-        click.echo(click.style(f"Error stopping server: {e}", fg="red"), err=True)
-        sys.exit(1)
 
 
 def run_worker(logger, workers: int) -> None:
@@ -671,32 +676,37 @@ def show_info(logger) -> None:
         sys.exit(1)
 
     click.echo()
-    click.echo("Available Actions:")
-    click.echo("  --action server    Start the development server")
-    click.echo("  --action worker    Start background task worker")
-    click.echo("  --action scheduler Start task scheduler (cron-based tasks)")
-    click.echo("  --action health    Check application health")
-    click.echo("  --action config    Display configuration")
-    click.echo("  --action test      Run test suite")
-    click.echo("  --action stop           Stop a running server")
-    click.echo("  --action migrate        Run database migrations")
-    click.echo("  --action telegram-poll  Start Telegram bot (polling, local dev)")
-    click.echo("  --action info           Show this information")
+    click.echo("Services (--service):")
+    click.echo("  server         FastAPI development server")
+    click.echo("  worker         Background task worker")
+    click.echo("  scheduler      Task scheduler (cron-based)")
+    click.echo("  telegram-poll  Telegram bot (polling, local dev)")
+    click.echo("  health         Check application health")
+    click.echo("  config         Display configuration")
+    click.echo("  test           Run test suite")
+    click.echo("  migrate        Database migrations")
+    click.echo("  info           Show this information")
     click.echo()
-    click.echo("Logging Options:")
-    click.echo("  --verbose, -v     Enable INFO level logging")
-    click.echo("  --debug, -d       Enable DEBUG level logging")
+    click.echo("Lifecycle actions (--action, for long-running services):")
+    click.echo("  start          Start the service (default)")
+    click.echo("  stop           Stop a running service")
+    click.echo("  restart        Stop then start")
+    click.echo("  status         Check if running")
+    click.echo()
+    click.echo("Options:")
+    click.echo("  --verbose, -v  Enable INFO level logging")
+    click.echo("  --debug, -d    Enable DEBUG level logging")
     click.echo()
     click.echo("Examples:")
-    click.echo("  python cli.py --action server --reload --verbose")
-    click.echo("  python cli.py --action worker --workers 2 --verbose")
-    click.echo("  python cli.py --action scheduler --verbose")
-    click.echo("  python cli.py --action health --debug")
-    click.echo("  python cli.py --action test --test-type unit --coverage")
-    click.echo("  python cli.py --action migrate --migrate-action current")
-    click.echo("  python cli.py --action migrate --migrate-action upgrade")
-    click.echo("  python cli.py --action migrate --migrate-action autogenerate -m 'add users'")
-    click.echo("  python cli.py --action telegram-poll --verbose")
+    click.echo("  python cli.py --service server --reload --verbose")
+    click.echo("  python cli.py --service server --action stop")
+    click.echo("  python cli.py --service server --action restart --port 8099")
+    click.echo("  python cli.py --service server --action status")
+    click.echo("  python cli.py --service worker --workers 2 --verbose")
+    click.echo("  python cli.py --service health --debug")
+    click.echo("  python cli.py --service test --test-type unit --coverage")
+    click.echo("  python cli.py --service migrate --migrate-action current")
+    click.echo("  python cli.py --service telegram-poll --verbose")
 
     logger.debug("Info displayed")
 

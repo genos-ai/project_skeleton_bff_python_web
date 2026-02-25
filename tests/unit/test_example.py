@@ -56,20 +56,20 @@ class TestMainCLI:
 
         # Assert
         assert result.exit_code == 0
-        assert "BFF Application Entry Point" in result.output
-        assert "--action" in result.output
+        assert "BFF Application CLI" in result.output
+        assert "--service" in result.output
         assert "--verbose" in result.output
         assert "--debug" in result.output
 
     def test_info_action_displays_app_info(self, runner):
         """Should display application info with --action info."""
         # Act
-        result = runner.invoke(main, ["--action", "info"])
+        result = runner.invoke(main, ["--service", "info"])
 
         # Assert
         assert result.exit_code == 0
         assert "BFF Python Web Application" in result.output
-        assert "Available Actions:" in result.output
+        assert "Services (--service):" in result.output
 
     def test_verbose_flag_sets_info_logging(self, runner):
         """Should configure INFO level logging with --verbose."""
@@ -77,7 +77,7 @@ class TestMainCLI:
         with patch("cli.setup_logging") as mock_setup:
             with patch("cli.validate_project_root"):
                 # Act
-                runner.invoke(main, ["--action", "info", "--verbose"])
+                runner.invoke(main, ["--service", "info", "--verbose"])
 
         # Assert
         mock_setup.assert_called_once()
@@ -92,7 +92,7 @@ class TestMainCLI:
         with patch("cli.setup_logging") as mock_setup:
             with patch("cli.validate_project_root"):
                 # Act
-                runner.invoke(main, ["--action", "info", "--debug"])
+                runner.invoke(main, ["--service", "info", "--debug"])
 
         # Assert
         mock_setup.assert_called_once()
@@ -101,7 +101,7 @@ class TestMainCLI:
     def test_config_action_displays_configuration(self, runner):
         """Should display YAML configuration with --action config."""
         # Act - use real config since it's available
-        result = runner.invoke(main, ["--action", "config"])
+        result = runner.invoke(main, ["--service", "config"])
 
         # Assert
         assert result.exit_code == 0
@@ -111,7 +111,7 @@ class TestMainCLI:
     def test_health_action_runs_checks(self, runner):
         """Should run health checks with --action health."""
         # Act
-        result = runner.invoke(main, ["--action", "health"])
+        result = runner.invoke(main, ["--service", "health"])
 
         # Assert
         assert result.exit_code == 0
@@ -121,7 +121,7 @@ class TestMainCLI:
     def test_invalid_action_shows_error(self, runner):
         """Should show error for invalid action value."""
         # Act
-        result = runner.invoke(main, ["--action", "invalid"])
+        result = runner.invoke(main, ["--service", "invalid"])
 
         # Assert
         assert result.exit_code != 0
@@ -158,13 +158,13 @@ class TestCLIOptions:
     def test_short_flags_work(self, runner):
         """Should accept short flag versions."""
         # Act - use -v for verbose
-        result = runner.invoke(main, ["-v", "--action", "info"])
+        result = runner.invoke(main, ["-v", "--service", "info"])
 
         # Assert
         assert result.exit_code == 0
 
         # Act - use -d for debug
-        result = runner.invoke(main, ["-d", "--action", "info"])
+        result = runner.invoke(main, ["-d", "--service", "info"])
 
         # Assert
         assert result.exit_code == 0
@@ -181,7 +181,7 @@ class TestActionBehavior:
     def test_info_shows_examples(self, runner):
         """Should show usage examples in info output."""
         # Act
-        result = runner.invoke(main, ["--action", "info"])
+        result = runner.invoke(main, ["--service", "info"])
 
         # Assert
         assert "python cli.py" in result.output
@@ -190,7 +190,7 @@ class TestActionBehavior:
     def test_config_shows_all_sections(self, runner):
         """Should show all configuration sections."""
         # Act
-        result = runner.invoke(main, ["--action", "config"])
+        result = runner.invoke(main, ["--service", "config"])
 
         # Assert
         assert "Application Settings" in result.output
@@ -201,7 +201,7 @@ class TestActionBehavior:
     def test_health_shows_pass_fail_status(self, runner):
         """Should show pass/fail status for each check."""
         # Act
-        result = runner.invoke(main, ["--action", "health"])
+        result = runner.invoke(main, ["--service", "health"])
 
         # Assert
         # Should have either PASS or FAIL indicators

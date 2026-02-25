@@ -468,7 +468,7 @@ For channels where users cannot be pre-configured (public-facing bots), the pair
 1. Unknown user sends a message through any channel
 2. Gateway generates a 6-character alphanumeric code with a configurable TTL
 3. Gateway responds to the user: "Send this code to the admin to get access: `ABC123`"
-4. Admin approves via CLI: `python cli.py --action approve-pairing --code ABC123`
+4. Admin approves via CLI: `python cli.py --service approve-pairing --code ABC123`
 5. User's channel-specific ID is added to the persistent allowlist
 6. Subsequent messages from this user are processed normally
 
@@ -797,7 +797,7 @@ The daemon is optional — channels with webhook support (Telegram, Slack) do no
 ### Entry Point
 
 ```bash
-python cli.py --action gateway-daemon --verbose
+python cli.py --service gateway-daemon --verbose
 ```
 
 The daemon uses the same configuration (`gateway.yaml`), the same security rules, and the same session model as the embedded gateway. It is a deployment option, not an architectural change.

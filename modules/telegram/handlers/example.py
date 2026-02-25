@@ -13,6 +13,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from modules.backend.core.config import get_app_config
 from modules.backend.core.logging import get_logger
 from modules.telegram.callbacks.common import ActionCallback
 from modules.telegram.keyboards.common import (
@@ -69,7 +70,7 @@ async def cmd_info(message: Message, user_role: str) -> None:
 • Chat ID: <code>{message.chat.id}</code>
 • Chat Type: {message.chat.type}
 
-<b>Bot Version:</b> 1.0.0
+<b>Bot Version:</b> {get_app_config().application.version}
 """
 
     await message.answer(info_text)

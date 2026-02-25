@@ -12,13 +12,15 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from modules.backend.core.config import get_app_config
 from modules.backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Default rate limit: 30 requests per 60 seconds
-DEFAULT_RATE_LIMIT = 30
-DEFAULT_RATE_WINDOW = 60
+
+def _get_telegram_rate_limit() -> int:
+    """Get telegram messages_per_minute from security.yaml."""
+    return get_app_config().security.rate_limiting.telegram.messages_per_minute
 
 
 class RateLimitMiddleware(BaseMiddleware):
@@ -28,14 +30,16 @@ class RateLimitMiddleware(BaseMiddleware):
     Limits the number of requests per user within a time window.
     Sends a warning message when rate limit is exceeded.
 
-    Configuration:
-        rate_limit: Maximum requests per window (default: 30)
-        rate_window: Time window in seconds (default: 60)
+    Rate limit values are loaded from security.yaml
+    (security.rate_limiting.telegram.messages_per_minute).
 
     Usage:
-        # In dispatcher setup
-        dp.message.middleware(RateLimitMiddleware(rate_limit=20, rate_window=60))
-        dp.callback_query.middleware(RateLimitMiddleware(rate_limit=30, rate_window=60))
+        # In dispatcher setup (reads from config)
+        dp.message.middleware(RateLimitMiddleware())
+        dp.callback_query.middleware(RateLimitMiddleware())
+
+        # Or override for specific use cases
+        dp.message.middleware(RateLimitMiddleware(rate_limit=10, rate_window=30))
 
     Note:
         For production with multiple workers, use Redis-based rate limiting:
@@ -45,17 +49,17 @@ class RateLimitMiddleware(BaseMiddleware):
 
     def __init__(
         self,
-        rate_limit: int = DEFAULT_RATE_LIMIT,
-        rate_window: int = DEFAULT_RATE_WINDOW,
+        rate_limit: int | None = None,
+        rate_window: int = 60,
     ):
         """
         Initialize the rate limiter.
 
         Args:
-            rate_limit: Maximum requests per window
+            rate_limit: Maximum requests per window (from security.yaml if not provided)
             rate_window: Time window in seconds
         """
-        self.rate_limit = rate_limit
+        self.rate_limit = rate_limit if rate_limit is not None else _get_telegram_rate_limit()
         self.rate_window = rate_window
         # In-memory storage: {user_id: [(timestamp, count), ...]}
         self._requests: dict[int, list[float]] = defaultdict(list)

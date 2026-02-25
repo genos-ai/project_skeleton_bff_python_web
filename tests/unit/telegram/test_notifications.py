@@ -56,12 +56,10 @@ class TestNotificationService:
     @pytest.mark.asyncio
     async def test_rate_limiting(self):
         """Test that rate limiting blocks excessive requests."""
-        from modules.telegram.services.notifications import (
-            RATE_LIMIT_PER_USER,
-            NotificationService,
-        )
+        from modules.telegram.services.notifications import NotificationService
 
         service = NotificationService()
+        rate_limit = service._rate_limit_per_user
 
         mock_message = MagicMock()
         mock_message.message_id = 12345
@@ -71,7 +69,7 @@ class TestNotificationService:
 
         with patch(GET_BOT_PATCH, return_value=mock_bot):
             # Send up to the limit
-            for i in range(RATE_LIMIT_PER_USER):
+            for i in range(rate_limit):
                 result = await service.send(user_id=123, text=f"Message {i}")
                 assert result.success is True
 
@@ -83,12 +81,10 @@ class TestNotificationService:
     @pytest.mark.asyncio
     async def test_rate_limit_per_user(self):
         """Test that rate limits are tracked per user."""
-        from modules.telegram.services.notifications import (
-            RATE_LIMIT_PER_USER,
-            NotificationService,
-        )
+        from modules.telegram.services.notifications import NotificationService
 
         service = NotificationService()
+        rate_limit = service._rate_limit_per_user
 
         mock_message = MagicMock()
         mock_message.message_id = 12345
@@ -98,7 +94,7 @@ class TestNotificationService:
 
         with patch(GET_BOT_PATCH, return_value=mock_bot):
             # Exhaust rate limit for user 123
-            for i in range(RATE_LIMIT_PER_USER):
+            for i in range(rate_limit):
                 await service.send(user_id=123, text=f"Message {i}")
 
             # User 456 should still be able to send

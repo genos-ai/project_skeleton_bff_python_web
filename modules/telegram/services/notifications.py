@@ -29,16 +29,19 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from modules.backend.core.config import get_app_config
 from modules.backend.core.logging import get_logger, log_with_source
 from modules.backend.core.utils import utc_now
 
 logger = get_logger(__name__)
 
-# Telegram rate limits (conservative estimates)
-# - 30 messages per second to different chats
-# - 1 message per second to same chat (burst allowed)
-RATE_LIMIT_PER_USER = 20  # Max messages per minute per user
-RATE_LIMIT_WINDOW = 60  # Window in seconds
+# Window in seconds (1 minute, matching messages_per_minute config)
+RATE_LIMIT_WINDOW = 60
+
+
+def _get_notification_rate_limit() -> int:
+    """Get telegram messages_per_minute from security.yaml."""
+    return get_app_config().security.rate_limiting.telegram.messages_per_minute
 
 
 class AlertType(str, Enum):
@@ -105,6 +108,7 @@ class NotificationService:
         """Initialize the notification service."""
         # Rate limiting: {user_id: [timestamps]}
         self._rate_limits: dict[int, list[float]] = defaultdict(list)
+        self._rate_limit_per_user = _get_notification_rate_limit()
 
     def _check_rate_limit(self, user_id: int) -> bool:
         """
@@ -127,7 +131,7 @@ class NotificationService:
         ]
 
         # Check limit
-        if len(self._rate_limits[user_id]) >= RATE_LIMIT_PER_USER:
+        if len(self._rate_limits[user_id]) >= self._rate_limit_per_user:
             return False
 
         # Record this attempt

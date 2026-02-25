@@ -12,7 +12,7 @@ Usage:
     register_exception_handlers(app)
 """
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError as PydanticValidationError
@@ -151,6 +151,45 @@ async def validation_error_handler(
     )
 
 
+async def http_exception_handler(
+    request: Request,
+    exc: HTTPException,
+) -> JSONResponse:
+    """
+    Handle FastAPI HTTPException.
+
+    Preserves the status code and wraps the detail in the standard
+    ErrorResponse format so HTTPException responses are consistent
+    with application error responses.
+    """
+    request_id = _get_request_id(request)
+
+    logger.warning(
+        "HTTP exception",
+        extra={
+            "status": exc.status_code,
+            "detail": str(exc.detail),
+            "path": request.url.path,
+            "method": request.method,
+            "request_id": request_id,
+        },
+    )
+
+    error_detail = ErrorDetail(
+        code=f"HTTP_{exc.status_code}",
+        message=str(exc.detail),
+    )
+
+    metadata = ResponseMetadata(request_id=request_id)
+    response = ErrorResponse(error=error_detail, metadata=metadata)
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=response.model_dump(mode="json"),
+        headers=getattr(exc, "headers", None),
+    )
+
+
 async def unhandled_exception_handler(
     request: Request,
     exc: Exception,
@@ -204,6 +243,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     # Handle request validation errors (malformed requests)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
+
+    # Handle FastAPI HTTPException (must be before the Exception catch-all)
+    app.add_exception_handler(HTTPException, http_exception_handler)
 
     # Catch-all for unexpected exceptions
     app.add_exception_handler(Exception, unhandled_exception_handler)

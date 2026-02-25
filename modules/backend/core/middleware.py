@@ -56,6 +56,13 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
         raw_source = request.headers.get("X-Frontend-ID", "").lower().strip() or None
 
+        if raw_source is not None and raw_source not in VALID_SOURCES:
+            logger.warning(
+                "Invalid X-Frontend-ID header, ignoring",
+                extra={"raw_source": raw_source, "valid_sources": sorted(VALID_SOURCES)},
+            )
+            raw_source = None
+
         start_time = utc_now()
 
         request.state.request_id = request_id

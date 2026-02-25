@@ -97,13 +97,13 @@ class TestRequestContextMiddleware:
             await middleware.dispatch(mock_request, call_next)
 
     @pytest.mark.asyncio
-    async def test_unrecognized_source_passed_through(self, middleware, mock_request):
-        """Should pass through unrecognized X-Frontend-ID values as-is (no fallback)."""
+    async def test_unrecognized_source_dropped(self, middleware, mock_request):
+        """Should drop unrecognized X-Frontend-ID values and set source to None."""
         mock_request.headers = {"X-Frontend-ID": "custom-client"}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            assert request.state.source == "custom-client"
+            assert request.state.source is None
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):

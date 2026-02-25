@@ -54,7 +54,10 @@ Model Layer (modules/backend/models/)     → SQLAlchemy entities
 | `modules/backend/core/database.py` | Async SQLAlchemy engine and sessions |
 | `modules/backend/core/security.py` | JWT, password hashing, API keys |
 | `modules/backend/core/utils.py` | Utilities (utc_now) |
+| `modules/backend/core/config_schema.py` | Pydantic schemas for YAML config validation |
 | `modules/backend/tasks/broker.py` | Taskiq broker (Redis backend) |
+| `modules/backend/agents/` | Agent coordinator and vertical agents (PydanticAI) |
+| `modules/backend/gateway/` | Channel adapter registry and security (rate limiting, startup checks) |
 | `modules/telegram/` | Telegram bot (aiogram v3, webhook mode) |
 | `modules/frontend/` | React + Vite + Tailwind |
 

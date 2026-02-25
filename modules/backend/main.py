@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(level=app_config.logging.level)
 
     if app_config.features.security_startup_checks_enabled:
-        from modules.gateway.security.startup_checks import run_startup_checks
+        from modules.backend.gateway.security.startup_checks import run_startup_checks
         run_startup_checks()
 
     logger.info(
@@ -87,7 +87,7 @@ def _mount_channel_adapters(app: FastAPI, app_config) -> None:
         try:
             from modules.telegram.bot import get_bot, get_dispatcher
             from modules.telegram.webhook import get_webhook_router
-            from modules.gateway.registry import get_adapter
+            from modules.backend.gateway.registry import get_adapter
 
             bot = get_bot()
             dp = get_dispatcher()

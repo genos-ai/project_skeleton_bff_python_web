@@ -7,7 +7,7 @@ health check functions from modules/backend/api/health.py
 as tools.
 
 Usage:
-    from modules.agents.vertical.health_agent import run_health_agent
+    from modules.backend.agents.vertical.health_agent import run_health_agent
     result = await run_health_agent("How is the system doing?")
 """
 

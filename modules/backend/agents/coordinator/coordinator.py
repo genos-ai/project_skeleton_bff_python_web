@@ -5,7 +5,7 @@ Routes user requests to the appropriate vertical agent.
 Phase 1: rule-based routing only (keyword matching).
 
 Usage:
-    from modules.agents.coordinator.coordinator import handle, handle_direct, list_agents
+    from modules.backend.agents.coordinator.coordinator import handle, handle_direct, list_agents
     result = await handle("How is the system doing?")
     result = await handle_direct("health_agent", "check health")
     agents = list_agents()
@@ -100,7 +100,7 @@ async def handle_direct(agent_name: str, user_input: str) -> dict[str, Any]:
 async def _execute(agent_name: str, user_input: str) -> dict[str, Any]:
     """Execute a named agent with the given input."""
     if agent_name == "health_agent":
-        from modules.agents.vertical.health_agent import run_health_agent
+        from modules.backend.agents.vertical.health_agent import run_health_agent
 
         result = await run_health_agent(user_input)
 

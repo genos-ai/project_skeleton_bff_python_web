@@ -7,7 +7,7 @@ and gateway configuration. Provides adapter lookup by channel name.
 
 from modules.backend.core.config import get_app_config
 from modules.backend.core.logging import get_logger
-from modules.gateway.adapters import ChannelAdapter
+from modules.backend.gateway.adapters import ChannelAdapter
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,7 @@ def _register_enabled_adapters() -> None:
     if features.channel_telegram_enabled:
         try:
             from modules.telegram.bot import get_bot
-            from modules.gateway.adapters.telegram import TelegramAdapter
+            from modules.backend.gateway.adapters.telegram import TelegramAdapter
 
             bot = get_bot()
             adapter = TelegramAdapter(bot=bot)

@@ -10,7 +10,7 @@ the gateway's standard message format and aiogram's native types.
 from typing import TYPE_CHECKING
 
 from modules.backend.core.logging import get_logger
-from modules.gateway.adapters import AgentResponse, ChannelAdapter
+from modules.backend.gateway.adapters import AgentResponse, ChannelAdapter
 
 if TYPE_CHECKING:
     from aiogram import Bot

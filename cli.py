@@ -13,6 +13,7 @@ Usage:
     python cli.py --action test --test-type unit
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -40,7 +41,7 @@ def validate_project_root() -> Path:
 @click.command()
 @click.option(
     "--action",
-    type=click.Choice(["server", "worker", "scheduler", "health", "config", "test", "info", "migrate", "telegram-poll"]),
+    type=click.Choice(["server", "stop", "worker", "scheduler", "health", "config", "test", "info", "migrate", "telegram-poll"]),
     default="info",
     help="Action to perform.",
 )
@@ -153,6 +154,10 @@ def main(
 
         # Telegram bot (polling mode for local development)
         python cli.py --action telegram-poll --verbose
+
+        # Stop a running server
+        python cli.py --action stop
+        python cli.py --action stop --port 8099
     """
     # Validate project root
     validate_project_root()
@@ -177,6 +182,8 @@ def main(
     # Dispatch to action handlers
     if action == "server":
         run_server(logger, host, port, reload)
+    elif action == "stop":
+        stop_server(logger, port)
     elif action == "worker":
         run_worker(logger, workers)
     elif action == "scheduler":
@@ -237,6 +244,47 @@ def run_server(logger, host: str | None, port: int | None, reload: bool) -> None
     except subprocess.CalledProcessError as e:
         logger.error("Server failed to start", extra={"exit_code": e.returncode})
         sys.exit(e.returncode)
+
+
+def stop_server(logger, port: int | None) -> None:
+    """Stop a running server by finding its process on the configured port."""
+    import signal
+
+    from modules.backend.core.config import get_app_config
+
+    try:
+        server_config = get_app_config().application["server"]
+    except Exception as e:
+        logger.error("Failed to load configuration.", extra={"error": str(e)})
+        click.echo(click.style("Error: Could not load configuration.", fg="red"), err=True)
+        sys.exit(1)
+
+    server_port = port or server_config["port"]
+
+    try:
+        import subprocess as sp
+
+        result = sp.run(
+            ["lsof", "-ti", f":{server_port}"],
+            capture_output=True, text=True,
+        )
+        pids = result.stdout.strip().split("\n")
+        pids = [p.strip() for p in pids if p.strip()]
+
+        if not pids:
+            click.echo(f"No server running on port {server_port}.")
+            return
+
+        for pid in pids:
+            os.kill(int(pid), signal.SIGINT)
+            logger.info("Sent SIGINT to process", extra={"pid": pid, "port": server_port})
+
+        click.echo(f"Server on port {server_port} stopped (PID: {', '.join(pids)}).")
+
+    except Exception as e:
+        logger.error("Failed to stop server", extra={"error": str(e)})
+        click.echo(click.style(f"Error stopping server: {e}", fg="red"), err=True)
+        sys.exit(1)
 
 
 def run_worker(logger, workers: int) -> None:
@@ -630,6 +678,7 @@ def show_info(logger) -> None:
     click.echo("  --action health    Check application health")
     click.echo("  --action config    Display configuration")
     click.echo("  --action test      Run test suite")
+    click.echo("  --action stop           Stop a running server")
     click.echo("  --action migrate        Run database migrations")
     click.echo("  --action telegram-poll  Start Telegram bot (polling, local dev)")
     click.echo("  --action info           Show this information")

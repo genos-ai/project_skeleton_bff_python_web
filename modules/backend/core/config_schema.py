@@ -153,6 +153,10 @@ class FeaturesSchema(_StrictBase):
     security_headers_enabled: bool
     security_cors_enforce_production: bool
     experimental_background_tasks_enabled: bool
+    events_enabled: bool
+    events_publish_enabled: bool
+    observability_tracing_enabled: bool
+    observability_metrics_enabled: bool
 
 
 # =============================================================================
@@ -229,3 +233,107 @@ class GatewayChannelSchema(_StrictBase):
 class GatewaySchema(_StrictBase):
     default_policy: str
     channels: dict[str, GatewayChannelSchema]
+
+
+# =============================================================================
+# observability.yaml
+# =============================================================================
+
+
+class TracingSchema(_StrictBase):
+    enabled: bool
+    service_name: str
+    exporter: str
+    otlp_endpoint: str
+    sample_rate: float
+
+
+class MetricsSchema(_StrictBase):
+    enabled: bool
+
+
+class HealthChecksSchema(_StrictBase):
+    ready_timeout_seconds: int
+    detailed_auth_required: bool
+
+
+class ObservabilitySchema(_StrictBase):
+    tracing: TracingSchema
+    metrics: MetricsSchema
+    health_checks: HealthChecksSchema
+
+
+# =============================================================================
+# concurrency.yaml
+# =============================================================================
+
+
+class ThreadPoolSchema(_StrictBase):
+    max_workers: int
+
+
+class ProcessPoolSchema(_StrictBase):
+    max_workers: int
+
+
+class SemaphoresSchema(_StrictBase):
+    database: int
+    redis: int
+    external_api: int
+    llm: int
+
+
+class ShutdownSchema(_StrictBase):
+    drain_seconds: int
+
+
+class ConcurrencySchema(_StrictBase):
+    thread_pool: ThreadPoolSchema
+    process_pool: ProcessPoolSchema
+    semaphores: SemaphoresSchema
+    shutdown: ShutdownSchema
+
+
+# =============================================================================
+# events.yaml
+# =============================================================================
+
+
+class EventBrokerSchema(_StrictBase):
+    type: str
+
+
+class EventStreamsSchema(_StrictBase):
+    default_maxlen: int
+
+
+class ConsumerCircuitBreakerSchema(_StrictBase):
+    fail_max: int
+    timeout_duration: int
+
+
+class ConsumerRetrySchema(_StrictBase):
+    max_attempts: int
+    backoff_multiplier: int
+    backoff_max: int
+
+
+class ConsumerConfigSchema(_StrictBase):
+    stream: str
+    group: str
+    criticality: str
+    circuit_breaker: ConsumerCircuitBreakerSchema
+    retry: ConsumerRetrySchema
+    processing_timeout: int
+
+
+class EventDlqSchema(_StrictBase):
+    enabled: bool
+    stream_prefix: str
+
+
+class EventsSchema(_StrictBase):
+    broker: EventBrokerSchema
+    streams: EventStreamsSchema
+    consumers: dict[str, ConsumerConfigSchema]
+    dlq: EventDlqSchema

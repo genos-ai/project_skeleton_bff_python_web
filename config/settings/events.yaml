@@ -1,0 +1,47 @@
+# =============================================================================
+# Event Architecture Configuration
+# =============================================================================
+# Available options:
+#   Controls the FastStream event bus, stream sizing, and consumer behavior.
+#   The event system requires Redis (same instance as Taskiq/caching).
+#
+#   Stream naming: {domain}:{event-type}  e.g. notes:note-created
+#   Consumer group: {service-name}        e.g. note-processor
+#   Event type field: domain.entity.action (dot notation)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Broker
+# -----------------------------------------------------------------------------
+broker:
+  type: "redis"
+
+# -----------------------------------------------------------------------------
+# Streams
+# -----------------------------------------------------------------------------
+streams:
+  default_maxlen: 100000
+
+# -----------------------------------------------------------------------------
+# Consumers
+# -----------------------------------------------------------------------------
+consumers:
+  note-processor:
+    stream: "notes:note-created"
+    group: "note-processor"
+    criticality: "standard"
+    circuit_breaker:
+      fail_max: 5
+      timeout_duration: 30
+    retry:
+      max_attempts: 3
+      backoff_multiplier: 1
+      backoff_max: 10
+    processing_timeout: 30
+
+# -----------------------------------------------------------------------------
+# Dead Letter Queue
+# -----------------------------------------------------------------------------
+dlq:
+  enabled: true
+  stream_prefix: "dlq"

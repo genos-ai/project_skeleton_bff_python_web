@@ -1,0 +1,31 @@
+# =============================================================================
+# Observability Configuration
+# =============================================================================
+# Available options:
+#   Controls tracing, metrics, and health check behavior.
+#   Tracing and metrics are disabled by default — enable when
+#   backend infrastructure (OTel Collector, Prometheus) is deployed.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Distributed Tracing (OpenTelemetry)
+# -----------------------------------------------------------------------------
+tracing:
+  enabled: false
+  service_name: "bff-python"
+  exporter: "otlp"
+  otlp_endpoint: "http://localhost:4317"
+  sample_rate: 1.0
+
+# -----------------------------------------------------------------------------
+# Metrics (Prometheus)
+# -----------------------------------------------------------------------------
+metrics:
+  enabled: false
+
+# -----------------------------------------------------------------------------
+# Health Checks
+# -----------------------------------------------------------------------------
+health_checks:
+  ready_timeout_seconds: 5
+  detailed_auth_required: false

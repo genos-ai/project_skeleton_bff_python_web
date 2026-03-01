@@ -9,11 +9,15 @@ Secrets (.env):
     TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET
 
 Settings (YAML):
-    application.yaml - App identity, server, cors, telegram, pagination
-    database.yaml    - Database and Redis connection settings
-    logging.yaml     - Logging configuration
-    features.yaml    - Feature flags
-    security.yaml    - JWT settings
+    application.yaml   - App identity, server, cors, telegram, pagination
+    database.yaml      - Database and Redis connection settings
+    logging.yaml       - Logging configuration
+    features.yaml      - Feature flags
+    security.yaml      - JWT settings
+    gateway.yaml       - Channel gateway configuration
+    observability.yaml - Tracing, metrics, health check configuration
+    concurrency.yaml   - Pool sizes, semaphores, shutdown timing
+    events.yaml        - Event bus broker, streams, consumers
 """
 
 from functools import lru_cache
@@ -26,10 +30,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from modules.backend.core.config_schema import (
     ApplicationSchema,
+    ConcurrencySchema,
     DatabaseSchema,
+    EventsSchema,
     FeaturesSchema,
     GatewaySchema,
     LoggingSchema,
+    ObservabilitySchema,
     SecuritySchema,
 )
 
@@ -116,6 +123,9 @@ class AppConfig:
         self._features = _load_validated(FeaturesSchema, "features.yaml")
         self._security = _load_validated(SecuritySchema, "security.yaml")
         self._gateway = _load_validated(GatewaySchema, "gateway.yaml")
+        self._observability = _load_validated(ObservabilitySchema, "observability.yaml")
+        self._concurrency = _load_validated(ConcurrencySchema, "concurrency.yaml")
+        self._events = _load_validated(EventsSchema, "events.yaml")
 
     @property
     def application(self) -> ApplicationSchema:
@@ -146,6 +156,21 @@ class AppConfig:
     def gateway(self) -> GatewaySchema:
         """Gateway settings."""
         return self._gateway
+
+    @property
+    def observability(self) -> ObservabilitySchema:
+        """Observability settings (tracing, metrics, health checks)."""
+        return self._observability
+
+    @property
+    def concurrency(self) -> ConcurrencySchema:
+        """Concurrency settings (pools, semaphores, shutdown)."""
+        return self._concurrency
+
+    @property
+    def events(self) -> EventsSchema:
+        """Event architecture settings (broker, streams, consumers)."""
+        return self._events
 
 
 @lru_cache

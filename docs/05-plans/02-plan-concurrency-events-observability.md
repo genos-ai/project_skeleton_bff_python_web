@@ -1,7 +1,7 @@
 # Implementation Plan: Concurrency, Events, and Observability Infrastructure
 
 *Created: 2026-03-01*
-*Status: Not Started*
+*Status: Implemented*
 *Reference Docs: 08-core-observability, 16-core-concurrency-and-resilience, 21-opt-event-architecture*
 
 ---
@@ -10,37 +10,37 @@
 
 | # | Task | File(s) Affected | Status |
 |---|------|-----------------|--------|
-| 1 | Git commit and create feature branch | — | Not Started |
-| 2 | Add new dependencies to `requirements.txt` | `requirements.txt` | Not Started |
-| 3 | Create `config/settings/observability.yaml` | `config/settings/observability.yaml` | Not Started |
-| 4 | Create `config/settings/concurrency.yaml` | `config/settings/concurrency.yaml` | Not Started |
-| 5 | Create `config/settings/events.yaml` | `config/settings/events.yaml` | Not Started |
-| 6 | Add Pydantic schemas for the three new YAML files | `modules/backend/core/config_schema.py` | Not Started |
-| 7 | Register new configs in `AppConfig` and `config.py` | `modules/backend/core/config.py` | Not Started |
-| 8 | Add feature flags for events and observability | `config/settings/features.yaml`, `config_schema.py` | Not Started |
-| 9 | Update `VALID_SOURCES` and add `add_trace_context` processor | `modules/backend/core/logging.py` | Not Started |
-| 10 | Update middleware default source to `"unknown"` | `modules/backend/core/middleware.py` | Not Started |
-| 11 | Create `core/concurrency.py` — pools, semaphores, `TracedThreadPoolExecutor` | `modules/backend/core/concurrency.py` | Not Started |
-| 12 | Create `core/resilience.py` — `ResilienceLogger`, tenacity callback, composed stack | `modules/backend/core/resilience.py` | Not Started |
-| 13 | Update `main.py` lifespan — graceful shutdown, pool cleanup, OTel/metrics hooks | `modules/backend/main.py` | Not Started |
-| 14 | Update health checks — `TaskGroup`, circuit breaker/pool status, degraded state | `modules/backend/api/health.py` | Not Started |
-| 15 | Create `events/__init__.py` | `modules/backend/events/__init__.py` | Not Started |
-| 16 | Create `events/broker.py` — FastStream RedisBroker setup | `modules/backend/events/broker.py` | Not Started |
-| 17 | Create `events/schemas.py` — `EventEnvelope` and note domain events | `modules/backend/events/schemas.py` | Not Started |
-| 18 | Create `events/middleware.py` — `ObservabilityMiddleware` for consumers | `modules/backend/events/middleware.py` | Not Started |
-| 19 | Create `events/publishers.py` — `NoteEventPublisher` | `modules/backend/events/publishers.py` | Not Started |
-| 20 | Create `events/consumers/notes.py` — note event consumer with resilience stack | `modules/backend/events/consumers/notes.py` | Not Started |
-| 21 | Create `events/consumers/__init__.py` | `modules/backend/events/consumers/__init__.py` | Not Started |
-| 22 | Wire `NoteEventPublisher` into `NoteService` | `modules/backend/services/note.py` | Not Started |
-| 23 | Add `--service event-worker` to CLI | `cli.py` | Not Started |
-| 24 | Write unit tests for `core/concurrency.py` | `tests/unit/backend/core/test_concurrency.py` | Not Started |
-| 25 | Write unit tests for `core/resilience.py` | `tests/unit/backend/core/test_resilience.py` | Not Started |
-| 26 | Write unit tests for event schemas and publisher | `tests/unit/backend/events/test_events.py` | Not Started |
-| 27 | Write unit tests for event consumer | `tests/unit/backend/events/test_consumers.py` | Not Started |
-| 28 | Update integration tests for health endpoint enhancements | `tests/integration/backend/api/test_health_enhanced.py` | Not Started |
-| 29 | Run full test suite — verify zero regressions | All test files | Not Started |
-| 30 | Update `AGENTS.md` — document new modules | `AGENTS.md` | Not Started |
-| 31 | Merge branch back to main | — | Not Started |
+| 1 | Git commit and create feature branch | — | Done |
+| 2 | Add new dependencies to `requirements.txt` | `requirements.txt` | Done |
+| 3 | Create `config/settings/observability.yaml` | `config/settings/observability.yaml` | Done |
+| 4 | Create `config/settings/concurrency.yaml` | `config/settings/concurrency.yaml` | Done |
+| 5 | Create `config/settings/events.yaml` | `config/settings/events.yaml` | Done |
+| 6 | Add Pydantic schemas for the three new YAML files | `modules/backend/core/config_schema.py` | Done |
+| 7 | Register new configs in `AppConfig` and `config.py` | `modules/backend/core/config.py` | Done |
+| 8 | Add feature flags for events and observability | `config/settings/features.yaml`, `config_schema.py` | Done |
+| 9 | Update `VALID_SOURCES` and add `add_trace_context` processor | `modules/backend/core/logging.py` | Done |
+| 10 | Update middleware default source to `"unknown"` | `modules/backend/core/middleware.py` | Done |
+| 11 | Create `core/concurrency.py` — pools, semaphores, `TracedThreadPoolExecutor` | `modules/backend/core/concurrency.py` | Done |
+| 12 | Create `core/resilience.py` — `ResilienceLogger`, tenacity callback, composed stack | `modules/backend/core/resilience.py` | Done |
+| 13 | Update `main.py` lifespan — graceful shutdown, pool cleanup, OTel/metrics hooks | `modules/backend/main.py` | Done |
+| 14 | Update health checks — `TaskGroup`, circuit breaker/pool status, degraded state | `modules/backend/api/health.py` | Done |
+| 15 | Create `events/__init__.py` | `modules/backend/events/__init__.py` | Done |
+| 16 | Create `events/broker.py` — FastStream RedisBroker setup | `modules/backend/events/broker.py` | Done |
+| 17 | Create `events/schemas.py` — `EventEnvelope` and note domain events | `modules/backend/events/schemas.py` | Done |
+| 18 | Create `events/middleware.py` — `ObservabilityMiddleware` for consumers | `modules/backend/events/middleware.py` | Done |
+| 19 | Create `events/publishers.py` — `NoteEventPublisher` | `modules/backend/events/publishers.py` | Done |
+| 20 | Create `events/consumers/notes.py` — note event consumer with resilience stack | `modules/backend/events/consumers/notes.py` | Done |
+| 21 | Create `events/consumers/__init__.py` | `modules/backend/events/consumers/__init__.py` | Done |
+| 22 | Wire `NoteEventPublisher` into `NoteService` | `modules/backend/services/note.py` | Done |
+| 23 | Add `--service event-worker` to CLI | `cli.py` | Done |
+| 24 | Write unit tests for `core/concurrency.py` | `tests/unit/backend/core/test_concurrency.py` | Done |
+| 25 | Write unit tests for `core/resilience.py` | `tests/unit/backend/core/test_resilience.py` | Done |
+| 26 | Write unit tests for event schemas and publisher | `tests/unit/backend/events/test_events.py` | Done |
+| 27 | Write unit tests for event consumer | `tests/unit/backend/events/test_consumers.py` | Done |
+| 28 | Update integration tests for health endpoint enhancements | `tests/integration/backend/api/test_health_enhanced.py` | Done |
+| 29 | Run full test suite — 436 passed, zero failures | All test files | Done |
+| 30 | Update `AGENTS.md` — document new modules | `AGENTS.md` | Done |
+| 31 | Merge branch back to main | — | Pending |
 
 ---
 

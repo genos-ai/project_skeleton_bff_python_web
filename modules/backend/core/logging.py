@@ -11,8 +11,10 @@ Structured fields in every JSON log record:
     event       - Log message
     func_name   - Function that emitted the log
     lineno      - Line number in source file
-    source      - Origin context, set explicitly (web, cli, tui, telegram, etc.)
+    source      - Origin context, set explicitly (web, cli, tui, telegram, events, agent, etc.)
     request_id  - Request correlation ID (when in HTTP request context)
+    trace_id    - OpenTelemetry trace ID (when tracing is active)
+    span_id     - OpenTelemetry span ID (when tracing is active)
 
 Additional fields are passed via extra kwargs or structlog context binding.
 
@@ -56,7 +58,10 @@ VALID_SOURCES = frozenset({
     "telegram",
     "api",
     "tasks",
+    "events",
     "internal",
+    "agent",
+    "unknown",
 })
 """
 Recognized log source values — for documentation and validation.
@@ -106,6 +111,30 @@ def _resolve_log_path(configured_path: str) -> Path:
     return project_root / configured_path
 
 
+def add_trace_context(
+    logger: Any, method_name: str, event_dict: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Structlog processor that adds OpenTelemetry trace context to log records.
+
+    When tracing is enabled and a span is active, injects trace_id and span_id
+    into every log record for correlation between logs and traces.
+
+    No-ops gracefully when OpenTelemetry is not installed or no span is active.
+    """
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        if span and span.is_recording():
+            ctx = span.get_span_context()
+            event_dict["trace_id"] = format(ctx.trace_id, "032x")
+            event_dict["span_id"] = format(ctx.span_id, "016x")
+    except ImportError:
+        pass
+    return event_dict
+
+
 def setup_logging(
     level: str | None = None,
     format_type: str | None = None,
@@ -146,6 +175,7 @@ def setup_logging(
 
     shared_processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
+        add_trace_context,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.PositionalArgumentsFormatter(),

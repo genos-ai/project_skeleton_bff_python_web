@@ -24,13 +24,19 @@ _app: FastAPI | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan manager."""
+    """Application lifespan manager — startup and graceful shutdown."""
     app_config = get_app_config()
     setup_logging(level=app_config.logging.level)
 
     if app_config.features.security_startup_checks_enabled:
         from modules.backend.gateway.security.startup_checks import run_startup_checks
         run_startup_checks()
+
+    if app_config.features.observability_tracing_enabled:
+        _init_tracing(app, app_config)
+
+    if app_config.features.observability_metrics_enabled:
+        _init_metrics(app)
 
     logger.info(
         "Application starting",
@@ -40,7 +46,55 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         },
     )
     yield
-    logger.info("Application shutting down")
+
+    logger.info("Application shutting down — draining pools")
+    from modules.backend.core.concurrency import shutdown_pools
+    await shutdown_pools()
+    logger.info("Application shutdown complete")
+
+
+def _init_tracing(app: FastAPI, app_config) -> None:
+    """Initialize OpenTelemetry tracing if enabled and SDK is installed."""
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        tracing_config = app_config.observability.tracing
+
+        resource = Resource.create({
+            "service.name": tracing_config.service_name,
+            "service.version": app_config.application.version,
+            "deployment.environment": app_config.application.environment,
+        })
+
+        provider = TracerProvider(resource=resource)
+        exporter = OTLPSpanExporter(endpoint=tracing_config.otlp_endpoint)
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
+
+        FastAPIInstrumentor.instrument_app(app)
+
+        logger.info(
+            "OpenTelemetry tracing initialized",
+            extra={"endpoint": tracing_config.otlp_endpoint},
+        )
+    except ImportError:
+        logger.warning("OpenTelemetry SDK not installed — tracing disabled")
+
+
+def _init_metrics(app: FastAPI) -> None:
+    """Initialize Prometheus metrics endpoint if enabled and library is installed."""
+    try:
+        from prometheus_fastapi_instrumentator import Instrumentator
+
+        Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+        logger.info("Prometheus metrics endpoint enabled at /metrics")
+    except ImportError:
+        logger.warning("prometheus-fastapi-instrumentator not installed — metrics disabled")
 
 
 def create_app() -> FastAPI:

@@ -7,6 +7,7 @@ handles validation, and implements business rules.
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.backend.events.publishers import NoteEventPublisher
 from modules.backend.models.note import Note
 from modules.backend.repositories.note import NoteRepository
 from modules.backend.schemas.note import NoteCreate, NoteUpdate
@@ -24,6 +25,7 @@ class NoteService(BaseService):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session)
         self.repo = NoteRepository(session)
+        self._event_publisher = NoteEventPublisher()
 
     async def create_note(self, data: NoteCreate) -> Note:
         """
@@ -46,6 +48,11 @@ class NoteService(BaseService):
         )
 
         self._log_debug("Note created", note_id=note.id)
+        await self._event_publisher.note_created(
+            note_id=str(note.id),
+            title=data.title,
+            correlation_id=self._get_correlation_id(),
+        )
         return note
 
     async def get_note(self, note_id: str) -> Note:
@@ -142,6 +149,11 @@ class NoteService(BaseService):
             self.repo.update(note_id, **update_data),
         )
 
+        await self._event_publisher.note_updated(
+            note_id=str(note.id),
+            fields=list(update_data.keys()),
+            correlation_id=self._get_correlation_id(),
+        )
         return note
 
     async def delete_note(self, note_id: str) -> None:
@@ -175,7 +187,12 @@ class NoteService(BaseService):
             NotFoundError: If note not found
         """
         self._log_operation("Archiving note", note_id=note_id)
-        return await self.repo.archive(note_id)
+        note = await self.repo.archive(note_id)
+        await self._event_publisher.note_archived(
+            note_id=str(note.id),
+            correlation_id=self._get_correlation_id(),
+        )
+        return note
 
     async def unarchive_note(self, note_id: str) -> Note:
         """
@@ -206,3 +223,16 @@ class NoteService(BaseService):
         """
         self._log_debug("Searching notes", query=query)
         return await self.repo.search_by_title(query, limit=limit)
+
+    @staticmethod
+    def _get_correlation_id() -> str:
+        """Extract request_id from structlog context as correlation_id.
+
+        Falls back to a new UUID if not in a request context.
+        """
+        import uuid
+
+        import structlog
+
+        ctx = structlog.contextvars.get_contextvars()
+        return ctx.get("request_id", str(uuid.uuid4()))

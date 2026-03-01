@@ -153,6 +153,10 @@ def mock_app_config() -> MagicMock:
     config.features = {
         "auth_require_email_verification": False,
         "api_detailed_errors": True,
+        "events_enabled": False,
+        "events_publish_enabled": False,
+        "observability_tracing_enabled": False,
+        "observability_metrics_enabled": False,
     }
     config.security = {
         "jwt": {

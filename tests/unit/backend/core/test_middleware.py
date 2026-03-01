@@ -84,26 +84,26 @@ class TestRequestContextMiddleware:
             await middleware.dispatch(mock_request, call_next)
 
     @pytest.mark.asyncio
-    async def test_source_is_none_when_header_missing(self, middleware, mock_request):
-        """Should set source to None when X-Frontend-ID header is missing."""
+    async def test_source_defaults_to_unknown_when_header_missing(self, middleware, mock_request):
+        """Should set source to 'unknown' when X-Frontend-ID header is missing."""
         mock_request.headers = {}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            assert request.state.source is None
+            assert request.state.source == "unknown"
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
             await middleware.dispatch(mock_request, call_next)
 
     @pytest.mark.asyncio
-    async def test_unrecognized_source_dropped(self, middleware, mock_request):
-        """Should drop unrecognized X-Frontend-ID values and set source to None."""
+    async def test_unrecognized_source_defaults_to_unknown(self, middleware, mock_request):
+        """Should default unrecognized X-Frontend-ID values to 'unknown'."""
         mock_request.headers = {"X-Frontend-ID": "custom-client"}
         mock_response = Response(content="OK", status_code=200)
 
         async def call_next(request):
-            assert request.state.source is None
+            assert request.state.source == "unknown"
             return mock_response
 
         with patch("modules.backend.core.middleware.structlog.contextvars"):
@@ -138,8 +138,8 @@ class TestRequestContextMiddleware:
             assert call_kwargs["source"] == "cli"
 
     @pytest.mark.asyncio
-    async def test_source_not_bound_to_structlog_when_missing(self, middleware, mock_request):
-        """Should not bind source to structlog context when header is missing."""
+    async def test_source_bound_as_unknown_when_header_missing(self, middleware, mock_request):
+        """Should bind source as 'unknown' in structlog context when header is missing."""
         mock_request.headers = {}
         mock_response = Response(content="OK", status_code=200)
 
@@ -150,7 +150,7 @@ class TestRequestContextMiddleware:
             await middleware.dispatch(mock_request, call_next)
 
             call_kwargs = mock_ctx.bind_contextvars.call_args[1]
-            assert "source" not in call_kwargs
+            assert call_kwargs["source"] == "unknown"
 
     # -------------------------------------------------------------------------
     # X-Request-ID Tests

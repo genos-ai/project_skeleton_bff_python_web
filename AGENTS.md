@@ -39,8 +39,9 @@ Model Layer (modules/backend/models/)     → SQLAlchemy entities
 
 ### Entry Points
 
-- `cli.py` — Click-based CLI (--service server|worker|scheduler|health|config|test|migrate|info --action start|stop|restart|status)
+- `cli.py` — Click-based CLI (--service server|worker|scheduler|event-worker|health|config|test|migrate|info --action start|stop|restart|status)
 - `modules/backend/main.py` — FastAPI application (for uvicorn)
+- `cli.py --service event-worker` — FastStream consumer (Redis Streams)
 
 ### Key Modules
 
@@ -54,6 +55,12 @@ Model Layer (modules/backend/models/)     → SQLAlchemy entities
 | `modules/backend/core/security.py` | JWT, password hashing, API keys |
 | `modules/backend/core/utils.py` | Utilities (utc_now) |
 | `modules/backend/core/config_schema.py` | Pydantic schemas for YAML config validation |
+| `modules/backend/core/concurrency.py` | Thread/process pools, semaphores, `TracedThreadPoolExecutor` |
+| `modules/backend/core/resilience.py` | Circuit breaker, retry callbacks, resilience patterns |
+| `modules/backend/events/broker.py` | FastStream RedisBroker setup and factory |
+| `modules/backend/events/schemas.py` | `EventEnvelope` base and note domain events |
+| `modules/backend/events/publishers.py` | `NoteEventPublisher` (Redis Streams) |
+| `modules/backend/events/consumers/notes.py` | Note event consumer with resilience stack + DLQ |
 | `modules/backend/tasks/broker.py` | Taskiq broker (Redis backend) |
 | `modules/backend/agents/` | Agent coordinator and vertical agents (PydanticAI) |
 | `modules/backend/gateway/` | Channel adapter registry and security (rate limiting, startup checks) |
@@ -94,6 +101,47 @@ async def get_items(db: DbSession):
 from modules.backend.tasks.broker import get_broker
 broker = get_broker()
 ```
+
+### Concurrency
+
+```python
+from modules.backend.core.concurrency import get_io_pool, get_cpu_pool, get_semaphore
+
+# Run blocking I/O in thread pool (preserves structlog context + OTel spans)
+result = await loop.run_in_executor(get_io_pool(), blocking_fn, arg)
+
+# Limit concurrent access to external services
+async with get_semaphore("database"):
+    result = await db.execute(query)
+```
+
+### Resilience
+
+Stack order: Circuit Breaker → Retry → Semaphore → Timeout → Call.
+
+```python
+from modules.backend.core.resilience import create_circuit_breaker, log_retry
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+breaker = create_circuit_breaker("redis", fail_max=5, timeout_duration=30)
+
+@breaker
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(), before_sleep=log_retry, reraise=True)
+async def call_external():
+    async with asyncio.timeout(10):
+        ...
+```
+
+### Event Publishing
+
+```python
+from modules.backend.events.publishers import NoteEventPublisher
+
+publisher = NoteEventPublisher()
+await publisher.note_created(note_id="123", title="Hello", correlation_id=request_id)
+```
+
+Feature-flag gated: `events_publish_enabled` in `config/settings/features.yaml`.
 
 ## Testing
 

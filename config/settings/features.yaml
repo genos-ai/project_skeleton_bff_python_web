@@ -73,3 +73,15 @@ security_cors_enforce_production: true
 # Experimental (disabled by default)
 # -----------------------------------------------------------------------------
 experimental_background_tasks_enabled: true
+
+# -----------------------------------------------------------------------------
+# Event Architecture (doc 21)
+# -----------------------------------------------------------------------------
+events_enabled: false
+events_publish_enabled: false
+
+# -----------------------------------------------------------------------------
+# Observability Hooks (doc 08)
+# -----------------------------------------------------------------------------
+observability_tracing_enabled: false
+observability_metrics_enabled: false

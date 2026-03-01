@@ -113,39 +113,37 @@ async def readiness_check() -> dict[str, Any]:
     Readiness check.
 
     Returns 200 if ready to serve traffic.
-    Checks critical dependencies (database, Redis) in parallel.
-    Used by load balancers (e.g., Kubernetes readiness probe).
-
+    Checks critical dependencies in parallel using TaskGroup.
     Returns 503 if any critical dependency is unhealthy.
     """
-    # Run checks in parallel for faster response
-    db_check, redis_check = await asyncio.gather(
-        check_database(),
-        check_redis(),
-        return_exceptions=True,
-    )
+    from modules.backend.core.config import get_app_config
+    timeout = get_app_config().observability.health_checks.ready_timeout_seconds
 
-    # Handle exceptions from gather
-    if isinstance(db_check, Exception):
-        db_check = {"status": "unhealthy", "error": str(db_check)}
-    if isinstance(redis_check, Exception):
-        redis_check = {"status": "unhealthy", "error": str(redis_check)}
+    db_result: dict[str, Any] = {"status": "error", "error": "check did not run"}
+    redis_result: dict[str, Any] = {"status": "error", "error": "check did not run"}
+
+    try:
+        async with asyncio.timeout(timeout):
+            async with asyncio.TaskGroup() as tg:
+                db_task = tg.create_task(check_database())
+                redis_task = tg.create_task(check_redis())
+            db_result = db_task.result()
+            redis_result = redis_task.result()
+    except* Exception as eg:
+        for exc in eg.exceptions:
+            logger.warning("Health check task failed", extra={"error": str(exc)})
 
     checks = {
-        "database": db_check,
-        "redis": redis_check,
+        "database": db_result,
+        "redis": redis_result,
     }
 
-    # Determine overall status
-    # "not_configured" is OK - the service can run without these if not needed
-    # "unhealthy" means a configured dependency is down
     unhealthy_checks = [
         name for name, check in checks.items()
         if check.get("status") == "unhealthy"
     ]
 
     if unhealthy_checks:
-        status = "unhealthy"
         logger.warning(
             "Readiness check failed",
             extra={"unhealthy": unhealthy_checks, "checks": checks},
@@ -153,7 +151,7 @@ async def readiness_check() -> dict[str, Any]:
         raise HTTPException(
             status_code=503,
             detail={
-                "status": status,
+                "status": "unhealthy",
                 "checks": checks,
                 "timestamp": utc_now().isoformat(),
             },
@@ -171,31 +169,28 @@ async def detailed_health_check() -> dict[str, Any]:
     """
     Detailed health check.
 
-    Returns comprehensive status of each component.
-    Includes latency measurements and configuration status.
-
-    Note: Should be protected by authentication in production
-    to avoid exposing infrastructure details.
+    Returns comprehensive status including dependency checks and pool metrics.
+    Should be protected by authentication in production
+    (controlled by observability.yaml health_checks.detailed_auth_required).
     """
-    # Run all checks in parallel
-    db_check, redis_check = await asyncio.gather(
-        check_database(),
-        check_redis(),
-        return_exceptions=True,
-    )
+    db_result: dict[str, Any] = {"status": "error", "error": "check did not run"}
+    redis_result: dict[str, Any] = {"status": "error", "error": "check did not run"}
 
-    # Handle exceptions
-    if isinstance(db_check, Exception):
-        db_check = {"status": "error", "error": str(db_check)}
-    if isinstance(redis_check, Exception):
-        redis_check = {"status": "error", "error": str(redis_check)}
+    try:
+        async with asyncio.TaskGroup() as tg:
+            db_task = tg.create_task(check_database())
+            redis_task = tg.create_task(check_redis())
+        db_result = db_task.result()
+        redis_result = redis_task.result()
+    except* Exception as eg:
+        for exc in eg.exceptions:
+            logger.warning("Detailed health check task failed", extra={"error": str(exc)})
 
     checks = {
-        "database": db_check,
-        "redis": redis_check,
+        "database": db_result,
+        "redis": redis_result,
     }
 
-    # Add application info
     try:
         from modules.backend.core.config import get_app_config
         app_config = get_app_config()
@@ -210,12 +205,13 @@ async def detailed_health_check() -> dict[str, Any]:
     except Exception:
         app_info = {"status": "not_configured"}
 
-    # Determine overall status
+    pools = _get_pool_status()
+
     statuses = [check.get("status") for check in checks.values()]
     if "unhealthy" in statuses or "error" in statuses:
         overall_status = "unhealthy"
     elif all(s == "not_configured" for s in statuses):
-        overall_status = "healthy"  # No dependencies configured is OK
+        overall_status = "healthy"
     else:
         overall_status = "healthy"
 
@@ -223,5 +219,36 @@ async def detailed_health_check() -> dict[str, Any]:
         "status": overall_status,
         "application": app_info,
         "checks": checks,
+        "pools": pools,
         "timestamp": utc_now().isoformat(),
     }
+
+
+def _get_pool_status() -> dict[str, Any]:
+    """Collect current pool and semaphore metrics for health reporting."""
+    from modules.backend.core.concurrency import (
+        _io_pool, _cpu_pool, _semaphores, _semaphore_capacities,
+    )
+
+    pools: dict[str, Any] = {}
+
+    if _io_pool is not None:
+        pools["thread_pool"] = {
+            "max_workers": _io_pool._max_workers,
+        }
+
+    if _cpu_pool is not None:
+        pools["process_pool"] = {
+            "max_workers": _cpu_pool._max_workers,
+        }
+
+    if _semaphores:
+        sem_status = {}
+        for name, sem in _semaphores.items():
+            sem_status[name] = {
+                "capacity": _semaphore_capacities.get(name, "unknown"),
+                "available": sem._value,
+            }
+        pools["semaphores"] = sem_status
+
+    return pools

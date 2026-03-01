@@ -125,10 +125,13 @@ def _create_mock_app_config() -> Any:
     """
     from modules.backend.core.config_schema import (
         ApplicationSchema,
+        ConcurrencySchema,
         DatabaseSchema,
+        EventsSchema,
         FeaturesSchema,
         GatewaySchema,
         LoggingSchema,
+        ObservabilitySchema,
         SecuritySchema,
     )
 
@@ -203,6 +206,10 @@ def _create_mock_app_config() -> Any:
                 security_headers_enabled=False,
                 security_cors_enforce_production=False,
                 experimental_background_tasks_enabled=False,
+                events_enabled=False,
+                events_publish_enabled=False,
+                observability_tracing_enabled=False,
+                observability_metrics_enabled=False,
             )
             self.security = SecuritySchema(
                 jwt={
@@ -238,6 +245,46 @@ def _create_mock_app_config() -> Any:
             self.gateway = GatewaySchema(
                 default_policy="allow_all",
                 channels={"telegram": {"allowlist": []}},
+            )
+            self.observability = ObservabilitySchema(
+                tracing={
+                    "enabled": False,
+                    "service_name": "bff-test",
+                    "exporter": "otlp",
+                    "otlp_endpoint": "http://localhost:4317",
+                    "sample_rate": 1.0,
+                },
+                metrics={"enabled": False},
+                health_checks={
+                    "ready_timeout_seconds": 5,
+                    "detailed_auth_required": False,
+                },
+            )
+            self.concurrency = ConcurrencySchema(
+                thread_pool={"max_workers": 2},
+                process_pool={"max_workers": 1},
+                semaphores={
+                    "database": 10,
+                    "redis": 20,
+                    "external_api": 5,
+                    "llm": 2,
+                },
+                shutdown={"drain_seconds": 5},
+            )
+            self.events = EventsSchema(
+                broker={"type": "redis"},
+                streams={"default_maxlen": 1000},
+                consumers={
+                    "note-processor": {
+                        "stream": "notes:note-created",
+                        "group": "note-processor",
+                        "criticality": "standard",
+                        "circuit_breaker": {"fail_max": 5, "timeout_duration": 30},
+                        "retry": {"max_attempts": 3, "backoff_multiplier": 1, "backoff_max": 10},
+                        "processing_timeout": 30,
+                    },
+                },
+                dlq={"enabled": True, "stream_prefix": "dlq"},
             )
 
     return TestAppConfig()

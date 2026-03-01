@@ -12,6 +12,9 @@ Usage:
     python cli.py --service health --debug
     python cli.py --service config
     python cli.py --service test --test-type unit
+    python cli.py --service test-events
+    python cli.py --service test-tasks
+    python cli.py --service event-worker --verbose
 """
 
 import os
@@ -29,7 +32,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from modules.backend.core.config import validate_project_root
 from modules.backend.core.logging import get_logger, setup_logging
 
-LONG_RUNNING_SERVICES = {"server", "worker", "scheduler", "telegram-poll"}
+LONG_RUNNING_SERVICES = {"server", "worker", "scheduler", "telegram-poll", "event-worker"}
 
 
 def _find_process_on_port(port: int) -> list[int]:
@@ -76,7 +79,7 @@ def _get_service_port(port: int | None) -> int:
 @click.command()
 @click.option(
     "--service", "-s",
-    type=click.Choice(["server", "worker", "scheduler", "health", "config", "test", "info", "migrate", "telegram-poll"]),
+    type=click.Choice(["server", "worker", "scheduler", "health", "config", "test", "test-events", "test-tasks", "info", "migrate", "telegram-poll", "event-worker"]),
     default="info",
     help="Service or command to run.",
 )
@@ -237,6 +240,12 @@ def main(
         run_migrations(logger, migrate_action, revision, message)
     elif service == "telegram-poll":
         run_telegram_poll(logger)
+    elif service == "event-worker":
+        run_event_worker(logger, workers)
+    elif service == "test-events":
+        run_test_events(logger)
+    elif service == "test-tasks":
+        run_test_tasks(logger)
 
 
 def run_server(logger, host: str | None, port: int | None, reload: bool) -> None:
@@ -421,6 +430,44 @@ async def _run_polling(bot, dp, logger) -> None:
         await bot.session.close()
 
 
+def run_event_worker(logger, workers: int) -> None:
+    """Start the FastStream event consumer worker."""
+    from modules.backend.core.config import get_app_config
+
+    features = get_app_config().features
+    if not features.events_enabled:
+        click.echo(
+            click.style(
+                "Error: events_enabled is false in features.yaml. "
+                "Enable it to run the event worker.",
+                fg="red",
+            ),
+            err=True,
+        )
+        sys.exit(1)
+
+    logger.info("Starting event worker", extra={"workers": workers})
+
+    cmd = [
+        sys.executable, "-m", "faststream",
+        "run",
+        "--factory",
+        "modules.backend.events.broker:create_event_app",
+        "--workers", str(workers),
+    ]
+
+    click.echo(f"Starting event worker with {workers} worker(s)")
+    click.echo("Press Ctrl+C to stop\n")
+
+    try:
+        subprocess.run(cmd, check=True)
+    except KeyboardInterrupt:
+        logger.info("Event worker stopped")
+    except subprocess.CalledProcessError as e:
+        logger.error("Event worker failed to start", extra={"exit_code": e.returncode})
+        sys.exit(e.returncode)
+
+
 def check_health(logger) -> None:
     """Check application health by testing imports and configuration."""
     click.echo("Checking application health...\n")
@@ -485,6 +532,34 @@ def check_health(logger) -> None:
         checks.append(("API schemas", False, str(e)))
         logger.error("Schemas failed", extra={"error": str(e)})
 
+    # Check 7: Concurrency (pools, semaphores)
+    try:
+        from modules.backend.core.concurrency import get_io_pool, shutdown_pools
+        checks.append(("Concurrency module", True, None))
+        logger.debug("Concurrency loaded")
+    except Exception as e:
+        checks.append(("Concurrency module", False, str(e)))
+        logger.error("Concurrency failed", extra={"error": str(e)})
+
+    # Check 8: Resilience (circuit breaker, retry)
+    try:
+        from modules.backend.core.resilience import ResilienceLogger, log_retry
+        checks.append(("Resilience module", True, None))
+        logger.debug("Resilience loaded")
+    except Exception as e:
+        checks.append(("Resilience module", False, str(e)))
+        logger.error("Resilience failed", extra={"error": str(e)})
+
+    # Check 9: Events broker (optional; only if events feature exists in config)
+    try:
+        from modules.backend.events.broker import create_event_broker
+        create_event_broker()
+        checks.append(("Events broker", True, None))
+        logger.debug("Events broker created")
+    except Exception as e:
+        checks.append(("Events broker", False, str(e)))
+        logger.error("Events broker failed", extra={"error": str(e)})
+
     # Display results
     click.echo("Health Check Results:")
     click.echo("-" * 50)
@@ -546,6 +621,136 @@ def show_config(logger) -> None:
         logger.error("Failed to load configuration", extra={"error": str(e)})
         click.echo(click.style(f"Error loading configuration: {e}", fg="red"))
         sys.exit(1)
+
+
+def run_test_events(logger) -> None:
+    """Run event unit tests and optionally publish one test event (when events + Redis enabled)."""
+    import asyncio
+
+    logger.info("Running event tests and smoke check")
+
+    # 1. Run event unit tests
+    cmd = [
+        sys.executable, "-m", "pytest",
+        "tests/unit/backend/events/",
+        "-v",
+    ]
+    click.echo("Event unit tests:\n")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        click.echo(click.style("\nEvent tests failed. Fix before running full flow.", fg="red"))
+        sys.exit(result.returncode)
+
+    # 2. If events and publish are enabled, publish one test event to Redis
+    try:
+        from modules.backend.core.config import get_app_config
+        app_config = get_app_config()
+        features = app_config.features
+    except Exception as e:
+        logger.warning("Could not load config for event smoke", extra={"error": str(e)})
+        click.echo("\nTo test the full flow: enable events_enabled and events_publish_enabled in config/settings/features.yaml, ensure Redis is running, then run test-events again.")
+        click.echo("In another terminal run: python cli.py --service event-worker --verbose")
+        return
+
+    if not features.events_enabled or not features.events_publish_enabled:
+        click.echo("\nEvents or events_publish disabled in features.yaml. Skipping publish smoke.")
+        click.echo("To test publish + consume: set events_enabled and events_publish_enabled to true, start Redis, then run test-events again.")
+        click.echo("In another terminal run: python cli.py --service event-worker --verbose")
+        return
+
+    async def _publish_one() -> None:
+        from modules.backend.events.broker import create_event_broker
+        from modules.backend.events.schemas import NoteCreated
+
+        broker = create_event_broker()
+        async with broker:
+            event = NoteCreated(
+                source="cli-test-events",
+                correlation_id="test-events-1",
+                trace_id=None,
+                payload={"note_id": "test-note-cli", "title": "Test event from test-events"},
+            )
+            await broker.publish(event.model_dump(), channel="notes:note-created")
+        logger.info(
+            "Published test event",
+            extra={"stream": "notes:note-created", "event_id": event.event_id},
+        )
+
+    try:
+        asyncio.run(_publish_one())
+        click.echo(click.style("\nSmoke: published one test event to notes:note-created.", fg="green"))
+        click.echo("Run in another terminal to see it consumed: python cli.py --service event-worker --verbose")
+    except Exception as e:
+        logger.error("Event publish smoke failed", extra={"error": str(e)})
+        click.echo(click.style(f"\nPublish smoke failed: {e}", fg="yellow"))
+        click.echo("Ensure Redis is running and config/settings/application.yaml database.redis is correct.")
+
+
+def run_test_tasks(logger) -> None:
+    """Run task unit tests and optionally enqueue one task (when Redis + feature enabled)."""
+    import asyncio
+
+    logger.info("Running task tests and smoke check")
+
+    # 1. Run task unit tests
+    cmd = [
+        sys.executable, "-m", "pytest",
+        "tests/unit/backend/tasks/",
+        "-v",
+    ]
+    click.echo("Task unit tests:\n")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        click.echo(click.style("\nTask tests failed. Fix before running full flow.", fg="red"))
+        sys.exit(result.returncode)
+
+    # 2. If background tasks enabled, try to enqueue one task
+    try:
+        from modules.backend.core.config import get_app_config
+        app_config = get_app_config()
+        features = app_config.features
+    except Exception as e:
+        logger.warning("Could not load config for task smoke", extra={"error": str(e)})
+        click.echo("\nTo test the full flow: enable experimental_background_tasks_enabled, ensure Redis is running, then run test-tasks again.")
+        click.echo("In another terminal run: python cli.py --service worker --verbose")
+        return
+
+    if not getattr(features, "experimental_background_tasks_enabled", False):
+        click.echo("\nBackground tasks disabled in features.yaml. Skipping enqueue smoke.")
+        click.echo("To test enqueue + worker: set experimental_background_tasks_enabled to true, start Redis, then run test-tasks again.")
+        click.echo("In another terminal run: python cli.py --service worker --verbose")
+        return
+
+    async def _enqueue_one() -> str:
+        from modules.backend.tasks.broker import get_broker
+        from modules.backend.tasks.example import register_tasks
+
+        broker = get_broker()
+        registered = register_tasks()
+        task_fn = registered["process_data"]
+        task = await task_fn.kiq(data={"smoke": "test-tasks"}, operation="validate")
+        try:
+            result = await task.wait_result(timeout=15)
+            return "completed" if not getattr(result, "is_err", True) else "error"
+        except (asyncio.TimeoutError, Exception) as e:
+            if isinstance(e, asyncio.TimeoutError) or "timeout" in str(e).lower():
+                return "timeout"
+            raise
+
+    try:
+        status = asyncio.run(_enqueue_one())
+        if status == "completed":
+            click.echo(click.style("\nSmoke: task enqueued and completed (worker processed it).", fg="green"))
+        elif status == "error":
+            click.echo(click.style("\nSmoke: task was processed but returned an error.", fg="yellow"))
+        else:
+            click.echo(click.style("\nSmoke: task enqueued; no worker processed it within 15s.", fg="yellow"))
+            click.echo("Start worker in another terminal to process: python cli.py --service worker --verbose")
+    except Exception as e:
+        logger.error("Task smoke failed", extra={"error": str(e)})
+        click.echo(click.style(f"\nTask smoke failed: {e}", fg="yellow"))
+        click.echo("Ensure Redis is running and config/settings (database.redis) is correct.")
+        click.echo("To process tasks, run in another terminal: python cli.py --service worker --verbose")
 
 
 def run_tests(logger, test_type: str, coverage: bool) -> None:
@@ -672,9 +877,12 @@ def show_info(logger) -> None:
     click.echo("  worker         Background task worker")
     click.echo("  scheduler      Task scheduler (cron-based)")
     click.echo("  telegram-poll  Telegram bot (polling, local dev)")
+    click.echo("  event-worker   Event consumer worker (FastStream)")
     click.echo("  health         Check application health")
     click.echo("  config         Display configuration")
     click.echo("  test           Run test suite")
+    click.echo("  test-events    Run event tests + optional publish smoke")
+    click.echo("  test-tasks    Run task tests + optional enqueue smoke")
     click.echo("  migrate        Database migrations")
     click.echo("  info           Show this information")
     click.echo()
@@ -696,8 +904,11 @@ def show_info(logger) -> None:
     click.echo("  python cli.py --service worker --workers 2 --verbose")
     click.echo("  python cli.py --service health --debug")
     click.echo("  python cli.py --service test --test-type unit --coverage")
+    click.echo("  python cli.py --service test-events --verbose")
+    click.echo("  python cli.py --service test-tasks --verbose")
     click.echo("  python cli.py --service migrate --migrate-action current")
     click.echo("  python cli.py --service telegram-poll --verbose")
+    click.echo("  python cli.py --service event-worker --verbose")
 
     logger.debug("Info displayed")
 

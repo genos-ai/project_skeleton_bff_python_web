@@ -54,14 +54,14 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         """Process request with context tracking."""
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
 
-        raw_source = request.headers.get("X-Frontend-ID", "").lower().strip() or None
+        raw_source = request.headers.get("X-Frontend-ID", "").lower().strip() or "unknown"
 
-        if raw_source is not None and raw_source not in VALID_SOURCES:
+        if raw_source not in VALID_SOURCES:
             logger.warning(
-                "Invalid X-Frontend-ID header, ignoring",
+                "Invalid X-Frontend-ID header, defaulting to unknown",
                 extra={"raw_source": raw_source, "valid_sources": sorted(VALID_SOURCES)},
             )
-            raw_source = None
+            raw_source = "unknown"
 
         start_time = utc_now()
 
@@ -75,8 +75,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             "method": request.method,
             "path": request.url.path,
         }
-        if raw_source is not None:
-            context["source"] = raw_source
+        context["source"] = raw_source
         structlog.contextvars.bind_contextvars(**context)
 
         logger.debug(

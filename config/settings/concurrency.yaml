@@ -1,0 +1,41 @@
+# =============================================================================
+# Concurrency Configuration
+# =============================================================================
+# Available options:
+#   Controls thread pool, process pool, and semaphore sizing.
+#   These values are upper bounds — adjust based on deployment resources.
+#
+#   Semaphore sizing guidelines (from doc 16):
+#     External REST API:  10-20
+#     LLM provider:       3-10
+#     Database:           match connection pool_size
+#     Redis:              50-100
+#     Internal services:  20-50
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Thread Pool (for blocking operations via asyncio.to_thread)
+# -----------------------------------------------------------------------------
+thread_pool:
+  max_workers: 10
+
+# -----------------------------------------------------------------------------
+# Process Pool (for CPU-bound operations)
+# -----------------------------------------------------------------------------
+process_pool:
+  max_workers: 4
+
+# -----------------------------------------------------------------------------
+# Semaphores (per-dependency concurrency limits)
+# -----------------------------------------------------------------------------
+semaphores:
+  database: 50
+  redis: 100
+  external_api: 20
+  llm: 5
+
+# -----------------------------------------------------------------------------
+# Graceful Shutdown
+# -----------------------------------------------------------------------------
+shutdown:
+  drain_seconds: 30

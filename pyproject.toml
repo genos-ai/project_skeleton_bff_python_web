@@ -1,0 +1,6 @@
+[project]
+name = "bff-python"
+version = "0.1.0"
+description = "Backend-for-Frontend Python web application skeleton (FastAPI, React, PostgreSQL, Redis, Taskiq)."
+readme = "README.md"
+requires-python = ">=3.14"

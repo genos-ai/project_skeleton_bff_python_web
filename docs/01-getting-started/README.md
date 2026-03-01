@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python 3.12+
+- Python 3.14+
 - Node.js 20+
 - PostgreSQL 16+
 - Redis 7+
@@ -33,7 +33,7 @@ uv pip install -r requirements.txt
 **Option B: conda (For data-heavy projects)**
 
 ```bash
-conda create -n project python=3.12
+conda create -n project python=3.14
 conda activate project
 pip install -r requirements.txt  # Or use environment.yml if available
 ```

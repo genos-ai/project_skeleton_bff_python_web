@@ -76,7 +76,7 @@ The event-driven example extends the existing Notes domain: when a note is creat
 - Shared memory / numpy patterns (domain-specific)
 - Transactional outbox (requires migration, more complexity than skeleton needs)
 - Telemetry debug API (depends on auth system, out of scope for skeleton)
-- Python 3.14 upgrade (separate concern — the code should be 3.14-ready but run on 3.12+)
+- Python 3.14 is now the project minimum (pyproject.toml requires-python >=3.14).
 
 ---
 

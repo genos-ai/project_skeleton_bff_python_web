@@ -2,6 +2,7 @@
 
 import asyncio
 import contextvars
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from modules.backend.core.concurrency import (
     _semaphores,
     get_cpu_pool,
     get_io_pool,
+    get_interpreter_pool,
     get_semaphore,
     shutdown_pools,
 )
@@ -24,6 +26,8 @@ def _reset_pools():
     """Reset global pool state before and after each test."""
     concurrency_module._io_pool = None
     concurrency_module._cpu_pool = None
+    if hasattr(concurrency_module, "_interp_pool"):
+        concurrency_module._interp_pool = None
     concurrency_module._semaphores.clear()
     concurrency_module._semaphore_capacities.clear()
     yield
@@ -34,6 +38,9 @@ def _reset_pools():
     if concurrency_module._cpu_pool is not None:
         concurrency_module._cpu_pool.shutdown(wait=False)
         concurrency_module._cpu_pool = None
+    if getattr(concurrency_module, "_interp_pool", None) is not None:
+        concurrency_module._interp_pool.shutdown(wait=False)
+        concurrency_module._interp_pool = None
     concurrency_module._semaphores.clear()
     concurrency_module._semaphore_capacities.clear()
 
@@ -115,6 +122,30 @@ class TestGetCpuPool:
         pool1 = get_cpu_pool()
         pool2 = get_cpu_pool()
         assert pool1 is pool2
+        assert pool1._max_workers == 2
+
+
+class TestGetInterpreterPool:
+    """InterpreterPoolExecutor is available only on Python 3.14+."""
+
+    def test_returns_none_or_executor(self):
+        """get_interpreter_pool() returns None on <3.14 or an executor on 3.14+."""
+        result = get_interpreter_pool()
+        if sys.version_info >= (3, 14):
+            assert result is not None
+            assert hasattr(result, "submit") and hasattr(result, "shutdown")
+        else:
+            assert result is None
+
+    @pytest.mark.skipif(sys.version_info < (3, 14), reason="InterpreterPoolExecutor requires Python 3.14+")
+    @patch("modules.backend.core.config.get_app_config")
+    def test_creates_pool_lazily_on_314(self, mock_get_config):
+        mock_get_config.return_value = _mock_concurrency_config(process_max=2)
+
+        pool1 = get_interpreter_pool()
+        pool2 = get_interpreter_pool()
+        assert pool1 is pool2
+        assert pool1 is not None
         assert pool1._max_workers == 2
 
 

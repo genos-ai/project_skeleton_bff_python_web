@@ -6,7 +6,7 @@ Backend-for-Frontend skeleton template with Python (FastAPI) backend and React (
 
 This project follows the BFF (Backend-for-Frontend) pattern:
 
-- **Backend**: Python 3.12+ with FastAPI
+- **Backend**: Python 3.14+ with FastAPI
 - **Frontend**: React with Vite, TypeScript, Tailwind CSS
 - **Database**: PostgreSQL with SQLAlchemy (async)
 - **Cache/Queue**: Redis with Taskiq
@@ -41,12 +41,27 @@ See [Architecture Standards](docs/99-reference-architecture/00-overview.md) for 
 
 ### Prerequisites
 
-- Python 3.12+
+- Python 3.14+
 - Node.js 20+
 - PostgreSQL 16+
 - Redis 7+
 
 ### Backend Setup
+
+**Conda:**
+
+```bash
+# Create env with Python 3.14 (conda-forge)
+conda env create -f environment.yml
+conda activate bff_python
+pip install -r requirements.txt
+
+# Verify
+python cli.py --service health --verbose
+python cli.py --service test --test-type unit
+```
+
+On Python 3.14 you also get: `get_interpreter_pool()` in `modules.backend.core.concurrency` (sub-interpreter CPU pool), and `python -m asyncio pstree <PID>` to debug stuck async tasks.
 
 Using **uv** (recommended for web apps - see [environment management](docs/99-reference-architecture/13-development-workflow.md#python-environment-management)):
 

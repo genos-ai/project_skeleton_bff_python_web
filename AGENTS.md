@@ -55,7 +55,7 @@ Model Layer (modules/backend/models/)     → SQLAlchemy entities
 | `modules/backend/core/security.py` | JWT, password hashing, API keys |
 | `modules/backend/core/utils.py` | Utilities (utc_now) |
 | `modules/backend/core/config_schema.py` | Pydantic schemas for YAML config validation |
-| `modules/backend/core/concurrency.py` | Thread/process pools, semaphores, `TracedThreadPoolExecutor` |
+| `modules/backend/core/concurrency.py` | Thread/process pools, semaphores, `TracedThreadPoolExecutor`, `get_interpreter_pool()` (3.14+) |
 | `modules/backend/core/resilience.py` | Circuit breaker, retry callbacks, resilience patterns |
 | `modules/backend/events/broker.py` | FastStream RedisBroker setup and factory |
 | `modules/backend/events/schemas.py` | `EventEnvelope` base and note domain events |
@@ -110,10 +110,19 @@ from modules.backend.core.concurrency import get_io_pool, get_cpu_pool, get_sema
 # Run blocking I/O in thread pool (preserves structlog context + OTel spans)
 result = await loop.run_in_executor(get_io_pool(), blocking_fn, arg)
 
+# On Python 3.14+: optional interpreter pool (sub-interpreters, lower startup than process pool)
+interp = get_interpreter_pool()
+if interp is not None:
+    result = await loop.run_in_executor(interp, cpu_fn, arg)
+else:
+    result = await loop.run_in_executor(get_cpu_pool(), cpu_fn, arg)
+
 # Limit concurrent access to external services
 async with get_semaphore("database"):
     result = await db.execute(query)
 ```
+
+**Debugging (Python 3.14+):** To inspect stuck async tasks in a running process: `python -m asyncio pstree <PID>` (built-in, no install).
 
 ### Resilience
 

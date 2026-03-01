@@ -116,18 +116,54 @@ broker = get_broker()
 
 ## Reference Architecture
 
-Full standards in `docs/99-reference-architecture/`:
+Full standards in `docs/99-reference-architecture/`. Documents are organized by category:
+- **`01–18` Core** (`*-core-*.md`) — apply to all projects
+- **`20–27` Optional** (`*-opt-*.md`) — adopt per project need
+- **`30–35` AI** (`*-ai-*.md`) — AI/agentic capabilities
+
+### Core Standards (01–18)
 
 | Doc | Topic |
 |-----|-------|
-| 01 | Core Principles |
-| 03 | Backend Architecture |
-| 10 | Python Coding Standards |
-| 12 | Observability |
-| 14 | Error Codes |
-| 16 | Testing Standards |
-| 19 | Background Tasks |
-| 25 | Agentic AI Architecture (conceptual) |
-| 26 | Agentic AI PydanticAI Implementation |
-| 27 | Agent-First Infrastructure (MCP, A2A, agent identity) |
-| 29 | Multi-Channel Gateway (channel adapters, sessions, WebSocket, security) |
+| 01-core-overview | Architecture overview and document index |
+| 02-core-principles | Non-negotiable architectural mandates |
+| 03-core-primitive-identification | Identifying the system's fundamental data type |
+| 04-core-backend-architecture | Backend framework, service layer, API design |
+| 05-core-module-structure | Module organization and inter-module communication |
+| 06-core-authentication | Authentication and authorization |
+| 07-core-python-coding-standards | Python file organization, imports, CLI, error handling |
+| 08-core-observability | Logging, metrics, distributed tracing, profiling |
+| 09-core-development-workflow | Git workflow, CI/CD, versioning |
+| 10-core-error-codes | Error code registry |
+| 11-core-project-template | Standard project directory structure |
+| 12-core-testing-standards | Test organization, fixtures, coverage |
+| 13-core-security-standards | Application security (OWASP, cryptography) |
+| 14-core-data-protection | Data protection and privacy (PII, GDPR) |
+| 15-core-background-tasks | Background tasks and scheduling (Taskiq) |
+| 16-core-concurrency-and-resilience | Concurrency model, resilience patterns, Python 3.14 |
+| 17-core-deployment-bare-metal | Self-hosted deployment (Ubuntu, systemd, nginx) |
+| 18-core-deployment-azure | Azure managed services deployment |
+
+### Optional Modules (20–27)
+
+| Doc | Topic |
+|-----|-------|
+| 20-opt-data-layer | Advanced database, time-series, caching |
+| 21-opt-event-architecture | Event-driven communication (FastStream, Redis Streams) |
+| 22-opt-frontend-architecture | React web frontend |
+| 23-opt-typescript-coding-standards | TypeScript/React coding standards |
+| 24-opt-telegram-bot-integration | Telegram bot (aiogram v3, webhook) |
+| 25-opt-telegram-client-integration | Telegram Client API (MTProto) |
+| 26-opt-tui-architecture | Terminal UI (Textual) |
+| 27-opt-multi-channel-gateway | Multi-channel delivery, sessions, WebSocket |
+
+### AI Modules (30–35)
+
+| Doc | Topic |
+|-----|-------|
+| 30-ai-llm-integration | LLM provider layer, prompts, cost tracking |
+| 31-ai-agentic-architecture | Agentic AI conceptual architecture |
+| 32-ai-agentic-pydanticai | Agentic AI PydanticAI implementation |
+| 33-ai-agent-first-infrastructure | MCP, A2A, agent identity, intent APIs |
+| 34-ai-ai-first-interface-design | AI-first service factory, discovery endpoints |
+| 35-ai-event-session-architecture | Event-driven sessions, plans, memory, approvals |

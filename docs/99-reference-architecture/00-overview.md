@@ -1,11 +1,12 @@
 # Architecture Standards Overview
 
-*Version: 2.3.0*
+*Version: 2.4.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 2.4.0 (2026-03-01): Added 24-concurrency-and-resilience.md as Core standard. Updated 03, 06, 08, 12, 19, 21, 22 version references.
 - 2.3.0 (2026-02-24): Added 29-multi-channel-gateway.md for channel adapters, session management, real-time push, gateway security; updated 01 with P8 Secure by Default
 - 2.2.0 (2026-02-24): Added 28-tui-architecture.md for interactive terminal interface (Textual)
 - 2.1.0 (2026-02-20): Added 27-agent-first-infrastructure.md for MCP, A2A, agent identity, intent APIs, agent-discoverable endpoints
@@ -37,7 +38,7 @@ Architectural decisions made inconsistently across projects create compounding c
 
 The structure separates Core standards (which apply to every project unconditionally) from Optional modules (which are adopted per project need). This lets teams skip irrelevant complexity — a backend-only API doesn't need frontend standards — while ensuring that when a capability is adopted, it follows the same patterns everywhere. Optional modules declare their dependencies explicitly, so adopting one module tells you exactly what else you need.
 
-Each document in this set is self-contained enough to be read independently, but they form a coherent whole. Core Principles (01) define the non-negotiable mandates. Backend Architecture (03) and Module Structure (04) define how code is organized. Coding Standards (10, 11), Testing (16), and Workflow (13) define how code is written and shipped. Security (17), Data Protection (18), and Authentication (09) define how it is secured. Deployment (21, 22) defines how it runs. Optional modules — Data Layer (05), Events (06), Frontend (07), LLM (08), Telegram (20, 23), Agentic AI (25, 26), Agent-First Infrastructure (27), TUI (28), Multi-Channel Gateway (29) — extend the core when projects need those capabilities.
+Each document in this set is self-contained enough to be read independently, but they form a coherent whole. Core Principles (01) define the non-negotiable mandates. Backend Architecture (03) and Module Structure (04) define how code is organized. Concurrency and Resilience (24) defines the concurrency model, parallelism patterns, and resilience standards (circuit breakers, retries, timeouts) that apply to all external calls. Coding Standards (10, 11), Testing (16), and Workflow (13) define how code is written and shipped. Security (17), Data Protection (18), and Authentication (09) define how it is secured. Observability (12) defines the three pillars: logs, metrics, and distributed traces. Deployment (21, 22) defines how it runs. Optional modules — Data Layer (05), Events (06), Frontend (07), LLM (08), Telegram (20, 23), Agentic AI (25, 26), Agent-First Infrastructure (27), TUI (28), Multi-Channel Gateway (29) — extend the core when projects need those capabilities.
 
 ---
 
@@ -65,6 +66,7 @@ These apply to all projects without exception:
 | 15-project-template.md | Standard project directory structure |
 | 16-testing-standards.md | Test organization, fixtures, coverage |
 | 19-background-tasks.md | Background tasks and scheduling (Taskiq) |
+| 24-concurrency-and-resilience.md | Concurrency model, resilience patterns, Python 3.14 features |
 | 21-deployment-bare-metal.md | Self-hosted deployment (Ubuntu, systemd, nginx) |
 | 22-deployment-azure.md | Azure managed services deployment |
 
@@ -237,6 +239,15 @@ Architecture choices favor technologies with extensive AI training data. This ma
 └───────────────────────┘
 ```
 
+**Cross-cutting core documents** (referenced by most optional modules):
+
+| Core Document | Referenced By |
+|---------------|---------------|
+| 24-concurrency-and-resilience.md | 03, 06, 08, 12, 19, 21, 22, 25, 26 |
+| 12-observability.md | 03, 06, 08, 19, 21, 22, 24, 25, 26, 29 |
+
+Doc 24 defines the shared resilience patterns (circuit breaker, retry, bulkhead, timeout) and concurrency model (asyncio, thread pools, process pools) that all service-layer and consumer code uses. Doc 12 defines the three-pillar observability standard (logs, metrics, traces) that all components emit into.
+
 If adopting 07-frontend-architecture.md, also adopt 11-typescript-coding-standards.md.
 If adopting 26-agentic-pydanticai.md, also adopt 25-agentic-architecture.md, 08-llm-integration.md, and 06-event-architecture.md.
 If adopting 27-agent-first-infrastructure.md, ensure 03-backend-architecture.md and 09-authentication.md are in place (both are core, so always present). Doc 27 is independent of 25/26 but composes naturally with them.
@@ -274,7 +285,7 @@ Deviations require documented justification and approval. Approved deviations ar
 
 For a new project:
 
-1. Apply all Core standards
+1. Apply all Core standards (including 24-concurrency-and-resilience.md for resilience patterns)
 2. Review Optional modules against project requirements
 3. Document which Optional modules are adopted in project README
 4. Follow the primitive identification process (02-primitive-identification.md)

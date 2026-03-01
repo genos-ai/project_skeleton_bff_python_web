@@ -1,11 +1,12 @@
 # 03 - Backend Architecture
 
-*Version: 1.0.0*
+*Version: 2.0.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 2.0.0 (2026-03-01): Python 3.14 minimum. Added uvloop as standard event loop. Expanded async patterns with references to 24-concurrency-and-resilience.md. Added graceful shutdown. Updated health checks to reference 12-observability.md v3. Added resilience reference for external service calls.
 - 1.0.0 (2025-01-27): Initial generic backend architecture standard
 
 ---
@@ -16,7 +17,7 @@ The backend is the center of gravity for every project in this architecture. Per
 
 FastAPI was chosen because it is async-native (matching the I/O-bound nature of most web backends), generates OpenAPI documentation automatically, integrates Pydantic for request/response validation, and has extensive AI training data for code assistance. The layered architecture (API → Service → Repository → Model) enforces separation between HTTP handling, business logic, and data access, making each layer independently testable and replaceable.
 
-This document standardizes the patterns that, left to individual choice, create the most friction: response envelope format, pagination strategy (cursor-based, never offset), error handling hierarchy, timeout values, configuration loading order, and health check endpoints. These are precisely the areas where "let each developer decide" leads to inconsistency across services and wasted integration time. Nearly every other standard — module structure (04), coding standards (10), error codes (14), testing (16), background tasks (19), and deployment (21, 22) — builds on the patterns defined here.
+This document standardizes the patterns that, left to individual choice, create the most friction: response envelope format, pagination strategy (cursor-based, never offset), error handling hierarchy, timeout values, configuration loading order, and health check endpoints. These are precisely the areas where "let each developer decide" leads to inconsistency across services and wasted integration time. Nearly every other standard — module structure (04), coding standards (10), error codes (14), testing (16), background tasks (19), concurrency and resilience (24), and deployment (21, 22) — builds on the patterns defined here.
 
 ---
 
@@ -35,9 +36,45 @@ Rationale:
 
 ### Python Version
 
-Minimum: Python 3.12
+**Minimum: Python 3.14**
 
-All projects target the latest stable Python release at project inception. Upgrades occur during major version releases.
+All new projects target Python 3.14. Existing projects on 3.12 should upgrade during their next major release cycle.
+
+Key improvements over 3.12:
+- 5–10% general performance improvement (specializing adaptive interpreter)
+- `InterpreterPoolExecutor` — sub-interpreters with independent GILs
+- `asyncio` introspection CLI — `python -m asyncio ps <PID>` for live debugging
+- `ProcessPoolExecutor.terminate_workers()` and `kill_workers()` for explicit lifecycle control
+- `forkserver` default on Linux for safe multiprocessing in threaded contexts
+- Free-threaded build available (experimental, not default — see doc 24 for guidance)
+
+For the full upgrade path from 3.12 and detailed Python 3.14 capabilities, see **24-concurrency-and-resilience.md**.
+
+### Event Loop: uvloop
+
+All FastAPI services use **uvloop** as the asyncio event loop.
+
+Rationale:
+- 2–4x faster than the default asyncio event loop
+- Built on libuv (Node.js's battle-tested I/O library)
+- Drop-in replacement — no code changes required
+
+**Uvicorn configuration:**
+```bash
+uvicorn modules.backend.main:app \
+    --loop uvloop \
+    --timeout-graceful-shutdown 30 \
+    --host 0.0.0.0 \
+    --port 8000
+```
+
+Or programmatically in `main.py`:
+```python
+import uvloop
+uvloop.install()  # Call before any asyncio usage
+```
+
+For full uvloop rationale and benchmarks, see **24-concurrency-and-resilience.md**.
 
 ---
 
@@ -51,7 +88,10 @@ project/
 │   ├── .env
 │   ├── .env.example
 │   └── settings/
-│       └── *.yaml
+│       ├── *.yaml
+│       ├── concurrency.yaml
+│       ├── events.yaml
+│       └── observability.yaml
 ├── modules/
 │   └── backend/
 │       ├── api/
@@ -75,6 +115,7 @@ project/
 | Directory | Purpose |
 |-----------|---------|
 | config/ | Environment variables and YAML configuration |
+| config/settings/ | YAML files including concurrency, events, observability settings |
 | modules/backend/api/ | HTTP endpoint handlers, versioned |
 | modules/backend/core/ | Shared utilities, configuration loading, middleware |
 | modules/backend/models/ | Database models (SQLAlchemy) |
@@ -94,7 +135,7 @@ Services contain all business logic. They:
 - Validate business rules
 - Orchestrate multi-step operations
 - Call repositories for data access
-- Call external services
+- Call external services (with resilience — see Async Patterns)
 - Emit events for async processing
 
 Services do not:
@@ -134,6 +175,8 @@ One repository per database table or aggregate root.
 
 ## Async Patterns
 
+This section defines the essential async patterns used in backend services. For the comprehensive concurrency model — including CPU-bound parallelism, thread/process pools, resilience patterns, context propagation, and profiling — see **24-concurrency-and-resilience.md**.
+
 ### Parallel Calls with TaskGroup
 
 Use `asyncio.TaskGroup` for parallel operations where all must succeed:
@@ -153,7 +196,20 @@ async def get_dashboard(user_id: UUID) -> Dashboard:
     )
 ```
 
-If any task fails, all others are automatically cancelled.
+If any task raises, all sibling tasks are cancelled. All exceptions are collected into an `ExceptionGroup`. Handle with `except*`:
+
+```python
+try:
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(fetch_prices())
+        tg.create_task(fetch_positions())
+except* ConnectionError as eg:
+    logger.error("Connection failures", count=len(eg.exceptions))
+    raise ExternalServiceError("Upstream services unavailable")
+except* TimeoutError as eg:
+    logger.error("Timeout failures", count=len(eg.exceptions))
+    raise ExternalServiceError("Upstream services too slow")
+```
 
 ### TaskGroup vs gather()
 
@@ -183,10 +239,106 @@ async def call_external_service(request: Request) -> Response:
 | Database query | 10 seconds |
 | Internal API call | 10 seconds |
 | External API call | 30 seconds |
+| LLM API call | 120 seconds |
 | File operations | 30 seconds |
 | Batch processing | 120 seconds |
 
-Adjust based on known operation characteristics.
+Adjust based on known operation characteristics. All timeouts are configurable via `config/settings/concurrency.yaml` (see doc 24).
+
+### Blocking Operations
+
+Any synchronous or blocking call in async code **must** be offloaded to avoid stalling the event loop:
+
+```python
+import asyncio
+
+# File I/O (synchronous in CPython)
+content = await asyncio.to_thread(Path("data.csv").read_text)
+
+# Blocking third-party library without async support
+data = await asyncio.to_thread(blocking_sdk.fetch, params)
+```
+
+For CPU-bound computation exceeding 50ms, use `ProcessPoolExecutor` instead of `asyncio.to_thread()`. See **24-concurrency-and-resilience.md** for the full decision matrix.
+
+### Concurrency Limiting
+
+All external service calls must be concurrency-limited with `asyncio.Semaphore`. Unbounded parallelism against an external API is a denial-of-service attack on your own dependency:
+
+```python
+_market_data_semaphore = asyncio.Semaphore(20)
+
+async def fetch_market_data(symbol: str) -> MarketData:
+    async with _market_data_semaphore:
+        async with asyncio.timeout(10):
+            return await market_client.get(symbol)
+```
+
+For semaphore sizing guidance, see **24-concurrency-and-resilience.md**.
+
+### Resilience on External Calls
+
+All external service calls must use the resilience stack defined in **24-concurrency-and-resilience.md**: circuit breaker → retry with backoff → bulkhead (semaphore) → timeout. This is not optional — every `ExternalServiceError` that could be transient must be handled with retry, and every dependency that could fail must have a circuit breaker.
+
+Summary of standards:
+- **Circuit breaker:** `aiobreaker` — prevents calls to known-failed services
+- **Retry:** `tenacity` — exponential backoff on transient failures
+- **Bulkhead:** `asyncio.Semaphore` — limits concurrent calls per dependency
+- **Timeout:** `asyncio.timeout()` — bounds wall-clock time per call
+
+All resilience events are logged per the contract in **12-observability.md**.
+
+---
+
+## Graceful Shutdown
+
+All FastAPI services implement graceful shutdown to avoid partial writes, orphaned connections, and lost in-flight requests.
+
+### Shutdown Sequence
+
+On SIGTERM/SIGINT:
+1. Mark service unhealthy (readiness probe returns 503)
+2. Wait 2–3 seconds for load balancer to remove the instance
+3. Stop accepting new connections
+4. Drain in-flight requests (with timeout)
+5. Flush pending logs and metrics
+6. Close connection pools (database, Redis, HTTP clients)
+7. Cancel remaining async tasks
+8. Exit cleanly
+
+### Implementation
+
+```python
+from contextlib import asynccontextmanager
+
+_shutting_down = False
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifecycle — startup and shutdown."""
+    # Startup
+    logger.info("Starting application")
+    await init_database_pool()
+    await init_redis_pool()
+    
+    yield
+    
+    # Shutdown
+    global _shutting_down
+    _shutting_down = True
+    logger.info("Shutdown initiated — draining requests")
+    await asyncio.sleep(3)
+    await close_database_pool()
+    await close_redis_pool()
+    await close_http_clients()
+    logger.info("Shutdown complete")
+
+app = FastAPI(lifespan=lifespan)
+```
+
+**Uvicorn must be configured with `--timeout-graceful-shutdown 30`** to allow time for draining. See deployment docs (21, 22) for container and systemd configuration.
+
+For the full graceful shutdown specification including Docker `tini`/`dumb-init`, Kubernetes `terminationGracePeriodSeconds`, and the `_shutting_down` flag integration with health checks, see **24-concurrency-and-resilience.md**.
 
 ---
 
@@ -208,7 +360,7 @@ All API responses use consistent envelope:
   "data": {},
   "error": null,
   "metadata": {
-    "timestamp": "2025-01-27T12:00:00Z",
+    "timestamp": "2026-03-01T12:00:00Z",
     "request_id": "uuid"
   }
 }
@@ -226,7 +378,7 @@ Error responses:
     "details": {}
   },
   "metadata": {
-    "timestamp": "2025-01-27T12:00:00Z",
+    "timestamp": "2026-03-01T12:00:00Z",
     "request_id": "uuid"
   }
 }
@@ -259,6 +411,7 @@ Error responses:
 | 422 | Semantically invalid (business rule violation) |
 | 429 | Rate limit exceeded |
 | 500 | Server error |
+| 503 | Service unavailable (shutting down, dependency circuit breaker open) |
 
 ### Pagination
 
@@ -278,7 +431,7 @@ Use keyset pagination with base64-encoded cursor containing the last record's so
 SELECT * FROM items LIMIT 50 OFFSET 5000;
 
 -- Cursor: Fast at any depth (uses index)
-SELECT * FROM items WHERE created_at < '2025-01-27T10:30:00' LIMIT 50;
+SELECT * FROM items WHERE created_at < '2026-03-01T10:30:00' LIMIT 50;
 ```
 
 **Cursor encoding:**
@@ -345,7 +498,9 @@ Secrets and environment-specific values come from environment variables:
 Application settings come from YAML files:
 - Feature flags
 - Rate limits
-- Timeouts
+- Timeouts and concurrency settings (`concurrency.yaml` — see doc 24)
+- Event broker and consumer settings (`events.yaml` — see doc 06)
+- Observability and tracing settings (`observability.yaml` — see doc 12)
 - Business rules
 
 ### Loading Order
@@ -367,25 +522,50 @@ Define project-specific exceptions:
 - `NotFoundError` - Resource does not exist
 - `AuthorizationError` - Not permitted
 - `ConflictError` - State conflict
-- `ExternalServiceError` - Third-party failure
+- `ExternalServiceError` - Third-party failure (includes circuit breaker open, timeout, retries exhausted)
+- `CircuitBreakerOpenError(ExternalServiceError)` - Specific: dependency circuit breaker is open
 
 ### Error Propagation
 
 - Repositories raise database-specific errors
 - Services catch and translate to application errors
+- **Resilience layers** (circuit breaker, retry, timeout) raise `ExternalServiceError` subtypes
 - API layer catches and translates to HTTP responses
 - Unhandled exceptions return 500 with error ID for debugging
+- `CircuitBreakerOpenError` returns 503 (service unavailable, retry later)
 
 ---
 
 ## Health Checks
 
-All services expose health endpoints:
+All services expose health endpoints. For the full specification including response format, circuit breaker state reporting, concurrency pool utilization, and the `degraded` status, see **12-observability.md**.
+
+Summary:
 
 | Endpoint | Purpose |
 |----------|---------|
 | /health | Basic liveness (returns 200 if process running) |
-| /health/ready | Readiness (database connected, dependencies available) |
-| /health/detailed | Component-by-component status (authenticated) |
+| /health/ready | Readiness (database, Redis, circuit breaker states). Returns 503 if shutting down. |
+| /health/detailed | Component-by-component status including circuit breakers and pool utilization (authenticated) |
 
-Health checks do not perform expensive operations. Database checks use simple queries, not full scans.
+**Rules:**
+- Liveness probes (`/health`) **never** check external dependencies
+- Readiness probes (`/health/ready`) check critical dependencies and report 503 during graceful shutdown
+- Health checks do not perform expensive operations. Database checks use simple queries, not full scans.
+
+---
+
+## Dependencies on Other Documents
+
+| Document | Relationship |
+|----------|-------------|
+| 01-core-principles.md | P1 (Backend Owns Logic), P5 (Fail Fast), P6 (Idempotency), P7 (No Hardcoded Values), O3 (Bounded Resources) |
+| 04-module-structure.md | Module organization builds on project structure defined here |
+| 10-python-coding-standards.md | Coding conventions for all backend Python code |
+| 12-observability.md | Health check specification, request context middleware, resilience event logging |
+| 14-error-codes.md | Error code registry maps to exception hierarchy |
+| 16-testing-standards.md | Test organization mirrors project structure |
+| 19-background-tasks.md | Background task processing and scheduling |
+| 21-deployment-bare-metal.md | Deployment configuration (systemd, nginx, uvicorn) |
+| 22-deployment-azure.md | Azure deployment configuration |
+| 24-concurrency-and-resilience.md | Full concurrency model, resilience patterns, uvloop, graceful shutdown, context propagation |

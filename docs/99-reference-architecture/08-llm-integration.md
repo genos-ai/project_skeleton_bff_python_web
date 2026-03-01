@@ -1,11 +1,12 @@
 # 08 - LLM Integration (Optional Module)
 
-*Version: 2.0.0*
+*Version: 3.0.0*
 *Author: Architecture Team*
 *Created: 2025-01-27*
 
 ## Changelog
 
+- 3.0.0 (2026-03-01): Extracted circuit breaker and retry to shared resilience standard (24-concurrency-and-resilience.md). Added LLM bulkhead (asyncio.Semaphore). Added fallback chain with circuit breaker integration. Added resilience event logging per 12-observability.md. Updated error handling with structured resilience patterns.
 - 2.0.0 (2026-02-18): Added tool/function calling, LLM provider interface, model version tracking, fallback model configuration, expanded provider guidance, updated cost tracking fields, added agent prompt paths; replaced multi-agent stub with reference to 25-agentic-architecture.md
 - 1.0.0 (2025-01-27): Initial generic LLM integration standard
 
@@ -484,13 +485,32 @@ Exceeding limits:
 
 ### Retry Strategy
 
-Transient errors (rate limits, timeouts, server errors):
-- Retry with exponential backoff
-- Maximum 3 retries
+All LLM calls use the resilience stack from **24-concurrency-and-resilience.md**: circuit breaker → retry → bulkhead → timeout.
 
-Permanent errors (invalid API key, malformed request):
+Transient errors (rate limits, timeouts, server errors):
+- Retry with exponential backoff via `tenacity`
+- Maximum 3 retries
+- Jitter to prevent thundering herd on provider rate limits
+
+Permanent errors (invalid API key, malformed request, content policy violation):
 - No retry
 - Log and surface to caller
+
+```python
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception_type
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=30, jitter=5),
+    retry=retry_if_exception_type((RateLimitError, TimeoutError, ProviderServerError)),
+    reraise=True,
+)
+async def _call_provider(self, request: LLMRequest) -> LLMResponse:
+    async with asyncio.timeout(120):  # LLM calls can be slow
+        return await self._provider.complete(request)
+```
+
+All retry attempts are logged per the resilience event contract in **12-observability.md** (event type: `retry_attempt`, dependency: provider name).
 
 ### Fallback Behavior
 
@@ -500,33 +520,119 @@ When all retries and fallback models are exhausted:
 - Queue non-urgent requests for later processing if appropriate
 - If using agentic architecture (25-agentic-architecture.md), the agent task is marked `failed` with partial results preserved
 
-### Rate Limiting
+### Concurrency Limiting (Bulkhead)
 
-Implement client-side rate limiting:
-- Track requests per minute
-- Queue requests when approaching limits
-- Spread requests over time window
+All LLM provider calls are concurrency-limited with `asyncio.Semaphore` to prevent overwhelming provider APIs and to protect the application from unbounded parallelism:
+
+```python
+# In LLMService initialization
+_llm_semaphore = asyncio.Semaphore(5)  # Max 5 concurrent LLM calls
+
+async def complete(self, request: LLMRequest) -> LLMResponse:
+    async with _llm_semaphore:
+        return await self._call_with_resilience(request)
+```
+
+Semaphore capacity is configured per provider in `config/settings/llm.yaml`:
+
+```yaml
+providers:
+  anthropic:
+    max_concurrent: 5       # Max parallel calls to Anthropic
+    timeout: 120             # Per-call timeout (seconds)
+  openai:
+    max_concurrent: 10
+    timeout: 120
+```
+
+When the semaphore is full, additional requests wait (with timeout). If wait exceeds 1 second, a `bulkhead_contention` event is logged per **12-observability.md**.
+
+Traditional per-minute rate limiting (tracking requests per minute, queuing when approaching limits) remains appropriate for providers with strict rate limits. Implement at the provider adapter level using a token bucket or sliding window counter.
 
 ### Circuit Breaker
 
-Prevent cascade failures when provider is experiencing issues.
+Each LLM provider has its own circuit breaker. When a provider is failing, the breaker opens and calls route immediately to the fallback model (if configured) without waiting for timeouts.
 
-**States:**
-```
-CLOSED ──(failures exceed threshold)──> OPEN
-   ^                                      |
-   |                                      |
-   └──(test succeeds)── HALF_OPEN <──(timeout)──┘
+Circuit breakers follow the patterns in **24-concurrency-and-resilience.md** and emit state change events per **12-observability.md**.
+
+```python
+import aiobreaker
+
+_anthropic_breaker = aiobreaker.CircuitBreaker(
+    fail_max=5,
+    timeout_duration=30,
+    listeners=[ResilienceLogger("llm_anthropic")],  # From doc 12
+)
+
+_openai_breaker = aiobreaker.CircuitBreaker(
+    fail_max=5,
+    timeout_duration=30,
+    listeners=[ResilienceLogger("llm_openai")],
+)
 ```
 
 **Configuration:**
 
-| Parameter | Value |
-|-----------|-------|
-| Failure threshold | 5 |
-| Failure window | 60 seconds |
-| Open duration | 30 seconds |
-| Half-open max requests | 1 |
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Failure threshold | 5 | LLM calls are expensive — don't burn tokens on a failing provider |
+| Open duration | 30 seconds | LLM provider outages typically resolve in seconds to minutes |
+| Half-open max requests | 1 | Test with single request before resuming |
+
+### Fallback Chain with Circuit Breaker
+
+When the primary provider's circuit breaker opens, route to fallback models automatically:
+
+```python
+async def complete_with_fallback(self, request: LLMRequest) -> LLMResponse:
+    """Try primary provider, fall through to fallbacks on breaker open."""
+    providers = [
+        (self._primary_provider, self._primary_breaker),
+        (self._fallback_provider, self._fallback_breaker),
+    ]
+    
+    last_error = None
+    for provider, breaker in providers:
+        try:
+            @breaker
+            async def _call(req):
+                async with _llm_semaphore:
+                    return await provider.complete(req)
+            
+            return await _call(request)
+        except aiobreaker.CircuitBreakerError:
+            logger.warning(
+                "Circuit breaker open, trying next provider",
+                resilience_event="circuit_breaker_rejected",
+                dependency=provider.name,
+            )
+            last_error = CircuitBreakerOpenError(f"{provider.name} breaker open")
+            continue
+        except Exception as e:
+            last_error = e
+            continue
+    
+    raise ExternalServiceError(f"All LLM providers exhausted: {last_error}")
+```
+
+Configure fallback chains in `config/settings/llm.yaml`:
+
+```yaml
+fallback_chains:
+  default:
+    - provider: anthropic
+      model: claude-sonnet-4-5-20250929
+    - provider: openai
+      model: gpt-4o
+  
+  cost_sensitive:
+    - provider: anthropic
+      model: claude-haiku-4-5-20251001
+    - provider: openai
+      model: gpt-4o-mini
+```
+
+The fallback chain is not a substitute for retries — retries handle transient errors within a provider, while the fallback chain handles sustained provider failures (breaker open). Both are needed.
 
 ---
 
@@ -579,8 +685,10 @@ When adopting this module:
 - [ ] Implement cost tracking (llm_usage table)
 - [ ] Configure LLM pricing table
 - [ ] Configure fallback models
-- [ ] Configure rate limiting
-- [ ] Set up circuit breaker
+- [ ] Configure concurrency limiting (asyncio.Semaphore per provider)
+- [ ] Set up circuit breaker per provider (aiobreaker — per doc 24)
+- [ ] Configure fallback chain in llm.yaml
+- [ ] Verify resilience event logging (circuit breaker, retry, timeout — per doc 12)
 - [ ] Create evaluation datasets for prompts
 - [ ] Implement mock mode for testing
 - [ ] Configure cost alerts and limits
@@ -601,5 +709,6 @@ If also adopting **25-agentic-architecture.md**:
 - [25-agentic-architecture.md](25-agentic-architecture.md) — Agentic AI conceptual architecture (phases, principles, patterns)
 - [26-agentic-pydanticai.md](26-agentic-pydanticai.md) — Agentic AI implementation using PydanticAI
 - [06-event-architecture.md](06-event-architecture.md) — Event bus for async processing
-- [12-observability.md](12-observability.md) — Logging and monitoring standards
+- [12-observability.md](12-observability.md) — Resilience event logging contract, distributed tracing, circuit breaker metrics
 - [19-background-tasks.md](19-background-tasks.md) — Background task processing
+- [24-concurrency-and-resilience.md](24-concurrency-and-resilience.md) — Circuit breaker, retry, bulkhead, and timeout patterns (shared standard)

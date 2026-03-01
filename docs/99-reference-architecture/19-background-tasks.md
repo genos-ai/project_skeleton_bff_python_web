@@ -1,11 +1,12 @@
 # 19 - Background Tasks and Scheduling
 
-*Version: 1.0.0*
+*Version: 2.0.0*
 *Author: Architecture Team*
 *Created: 2026-02-11*
 
 ## Changelog
 
+- 2.0.0 (2026-03-01): Added context propagation (request_id, correlation_id, trace_id) for background tasks. Added resilience patterns for tasks calling external services. Added task observability with structured logging. References 12-observability.md v3 and 24-concurrency-and-resilience.md.
 - 1.0.0 (2026-02-11): Extracted from 03-backend-architecture.md into dedicated document
 
 ---
@@ -167,6 +168,119 @@ async def trigger_processing(item_id: str):
     task = await tasks["process_data"].kiq(data={"item_id": item_id})
     return {"task_id": task.task_id}
 ```
+
+### Context Propagation
+
+Background tasks execute in a separate worker process — `request_id`, `correlation_id`, structlog context, and OpenTelemetry trace context from the dispatching HTTP request are **not automatically available** in the worker. Without explicit propagation, task logs are orphaned — you cannot trace a background task back to the request that triggered it.
+
+**Standard: Pass context as task arguments.**
+
+```python
+import structlog
+from uuid import uuid4
+
+# Dispatching — capture context from the current request
+@router.post("/items/{item_id}/process")
+async def trigger_processing(request: Request, item_id: str):
+    task = await tasks["process_data"].kiq(
+        data={"item_id": item_id},
+        request_id=request.state.request_id,
+        correlation_id=str(uuid4()),
+    )
+    return {"task_id": task.task_id}
+
+# Receiving — rebind context in the worker
+async def process_data(
+    data: dict,
+    request_id: str = "",
+    correlation_id: str = "",
+) -> dict:
+    """Process data in background with full observability context."""
+    structlog.contextvars.bind_contextvars(
+        request_id=request_id,
+        correlation_id=correlation_id,
+        source="tasks",
+    )
+    logger = structlog.get_logger()
+    logger.info("Starting background processing", item_id=data.get("item_id"))
+    
+    result = await _do_processing(data)
+    
+    logger.info("Background processing complete", item_id=data.get("item_id"))
+    return result
+```
+
+For OpenTelemetry trace propagation across the process boundary, see **12-observability.md** Context Propagation section.
+
+**Scheduled tasks** (cron-triggered) do not have an originating HTTP request. Bind a `source` and `correlation_id` at the start of execution:
+
+```python
+async def daily_cleanup():
+    """Scheduled task with observability context."""
+    structlog.contextvars.bind_contextvars(
+        correlation_id=str(uuid4()),
+        source="scheduler",
+        task_name="daily_cleanup",
+    )
+    logger = structlog.get_logger()
+    logger.info("Starting daily cleanup")
+    # ...
+```
+
+### Task Resilience
+
+Background tasks that call external services must use the resilience stack from **24-concurrency-and-resilience.md**: circuit breaker → retry → timeout.
+
+This is especially important for tasks because a failing external dependency does not just slow one request — it blocks a worker slot, potentially backing up the entire task queue.
+
+```python
+import aiobreaker
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+_email_breaker = aiobreaker.CircuitBreaker(
+    fail_max=5,
+    timeout_duration=30,
+    listeners=[ResilienceLogger("email_service")],
+)
+
+@_email_breaker
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True,
+)
+async def send_notification(
+    user_id: str,
+    message: str,
+    channel: str = "email",
+    request_id: str = "",
+    correlation_id: str = "",
+) -> dict:
+    structlog.contextvars.bind_contextvars(
+        request_id=request_id,
+        correlation_id=correlation_id,
+        source="tasks",
+    )
+    
+    async with asyncio.timeout(30):
+        await email_service.send(user_id, message)
+    
+    return {
+        "status": "delivered",
+        "user_id": user_id,
+        "channel": channel,
+        "sent_at": utc_now().isoformat(),
+    }
+```
+
+All resilience events (retry attempts, circuit breaker state changes, timeouts) are logged per the contract in **12-observability.md**.
+
+**Do not confuse Taskiq's built-in retry with tenacity retry.** Taskiq retry re-dispatches the entire task after failure. Tenacity retry happens within the task execution and handles transient errors to external services. Both are useful for different purposes:
+
+| Layer | Handles | Configured In |
+|-------|---------|---------------|
+| **tenacity** (within task) | Transient external service failures | Task function decorator |
+| **Taskiq** (re-dispatch) | Worker crashes, task infrastructure failures | `TASK_CONFIG` `max_retries` |
 
 ---
 
@@ -508,10 +622,17 @@ async def process_batch(items: list[str], batch_size: int = 100) -> dict:
 
 ### Tasks Failing
 
-1. Check worker logs for error details
-2. Verify task function works in isolation (unit test)
-3. Check for resource issues (database connections, memory)
-4. Review retry configuration
+1. Check worker logs for error details — filter by `correlation_id` or `request_id`:
+   ```bash
+   jq 'select(.source == "tasks" and .level == "error")' logs/system.jsonl | tail -20
+   ```
+2. Check for resilience events — circuit breaker open, retries exhausted:
+   ```bash
+   jq 'select(.resilience_event != null and .source == "tasks")' logs/system.jsonl
+   ```
+3. Verify task function works in isolation (unit test)
+4. Check for resource issues (database connections, memory)
+5. Review retry configuration (both tenacity and Taskiq levels)
 
 ### High Queue Depth
 
@@ -519,3 +640,17 @@ async def process_batch(items: list[str], batch_size: int = 100) -> dict:
 2. Check for slow tasks blocking workers
 3. Review task priorities
 4. Consider separate queues for different task types
+
+---
+
+## Dependencies on Other Documents
+
+| Document | Relationship |
+|----------|-------------|
+| 03-backend-architecture.md | Task dispatching from API endpoints |
+| 06-event-architecture.md | Outbox relay and consumer lag collection run as scheduled tasks |
+| 12-observability.md | Context propagation contract, resilience event logging, structured logging |
+| 21-deployment-bare-metal.md | Worker and scheduler systemd service definitions |
+| 22-deployment-azure.md | Worker deployment on WebJobs or separate App Service |
+| 24-concurrency-and-resilience.md | Resilience patterns (circuit breaker, retry, timeout) for tasks calling external services |
+| 25-agentic-architecture.md | Agent plan execution dispatched as background tasks |

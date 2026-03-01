@@ -6,6 +6,7 @@
 
 ## Changelog
 
+- 2.2.0 (2026-03-01): Added cross-reference to 24-concurrency-and-resilience.md for agent task resilience and LLM call patterns
 - 2.1.0 (2026-02-24): Added channel adapters to architecture diagram, added channel/session_type/tool_access_level to AgentTask primitive, updated orchestrator responsibilities to reference gateway (29-multi-channel-gateway.md)
 - 2.0.0 (2026-02-18): Split into conceptual architecture (this document) and implementation guide (26-agentic-pydanticai.md); this document is now framework-agnostic
 - 1.2.0 (2026-02-18): Expanded to 5 phases (Execute, Plan, Remember, Learn, Autonomy); added orchestrator evolution diagrams, tiered delegation pattern (Thinker/Specialist/Worker), agent-as-tool mechanism
@@ -1333,6 +1334,7 @@ When adopting this module:
 ### Prerequisites
 - [ ] 08-llm-integration.md adopted (LLM provider, cost tracking, prompt management)
 - [ ] 06-event-architecture.md adopted (Redis Streams for events)
+- [ ] 24-concurrency-and-resilience.md reviewed (resilience patterns for LLM calls and external tool invocations)
 - [ ] 26-agentic-pydanticai.md reviewed for implementation details
 
 ### Conceptual Decisions (before implementation)
@@ -1357,6 +1359,7 @@ Follow the phase-by-phase implementation checklist in **[26-agentic-pydanticai.m
 - [08-llm-integration.md](08-llm-integration.md) — LLM provider, prompts, cost management
 - [06-event-architecture.md](06-event-architecture.md) — Event bus for agent events
 - [19-background-tasks.md](19-background-tasks.md) — Taskiq for scheduled agent work
-- [12-observability.md](12-observability.md) — Logging standards
+- [12-observability.md](12-observability.md) — Three-pillar observability (logs, metrics, traces), resilience event logging, distributed tracing
+- [24-concurrency-and-resilience.md](24-concurrency-and-resilience.md) — Resilience patterns for LLM calls and external tool invocations (circuit breaker, retry, timeout, bulkhead)
 - [09-authentication.md](09-authentication.md) — RBAC for agent API access
 - [04-module-structure.md](04-module-structure.md) — Module boundaries and communication

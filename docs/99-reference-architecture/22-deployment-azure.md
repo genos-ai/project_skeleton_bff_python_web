@@ -1,11 +1,12 @@
 # 22 - Deployment: Azure
 
-*Version: 1.0.0*
+*Version: 2.0.0*
 *Author: Architecture Team*
 *Created: 2025-02-14*
 
 ## Changelog
 
+- 2.0.0 (2026-03-01): Python 3.14. uvloop event loop. Updated startup command with graceful shutdown timeout. Replaced OpenCensus with OpenTelemetry (OpenCensus is deprecated). Added py-spy for production debugging. Added file descriptor limit guidance. References 24-concurrency-and-resilience.md and 12-observability.md v3.
 - 1.0.0 (2025-02-14): Initial Azure deployment standard
 
 ---
@@ -91,8 +92,8 @@ Premium v3 (Pv3) is mandatory for production. It provides VNet integration, depl
 
 | Setting | Value |
 |---------|-------|
-| Runtime stack | Python 3.12 |
-| Startup command | `gunicorn -w 2 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 modules.backend.main:app` |
+| Runtime stack | Python 3.14 |
+| Startup command | `gunicorn -w 2 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --timeout 35 --graceful-timeout 30 modules.backend.main:app` |
 | Always On | Enabled (prevents idle unload) |
 | ARR Affinity | Disabled (stateless backend; session state in Redis/PostgreSQL) |
 | HTTPS Only | Enabled |
@@ -113,6 +114,24 @@ Gunicorn worker count follows the formula: `(2 × vCPU) + 1` as a starting point
 | P3v3 | 8 | 4–6 | Diminishing returns beyond this |
 
 Each Uvicorn worker handles hundreds of concurrent async connections. Do not over-allocate workers — each consumes memory for its own copy of the application.
+
+### Event Loop: uvloop
+
+All Uvicorn workers use uvloop as the asyncio event loop. uvloop is installed as a dependency and Uvicorn auto-detects it when present. No startup command changes needed — Uvicorn selects uvloop automatically when the `uvloop` package is installed.
+
+Verify in application logs at startup:
+```
+INFO:     Started server process [12345]
+INFO:     Using uvloop event loop implementation
+```
+
+If you need to force uvloop explicitly, add to `modules/backend/main.py`:
+```python
+import uvloop
+uvloop.install()
+```
+
+See **24-concurrency-and-resilience.md** for uvloop benchmarks and rationale.
 
 ### WebSocket Support
 
@@ -604,32 +623,66 @@ Use Static Web Apps for production (CDN, edge caching, independent deployment). 
 
 The existing structlog setup from the skeleton continues to write JSON logs to stdout. App Service captures stdout and forwards to Application Insights automatically when the instrumentation is configured.
 
-Add OpenCensus or OpenTelemetry for richer telemetry:
+### Distributed Tracing: OpenTelemetry
+
+**OpenCensus is deprecated.** Do not use `opencensus-ext-*` packages. Use OpenTelemetry with the Azure Monitor exporter.
 
 ```txt
 # In requirements.txt
-opencensus-ext-azure>=1.1.0
-opencensus-ext-requests>=0.8.0
-opencensus-ext-logging>=0.1.0
+opentelemetry-api>=1.25.0
+opentelemetry-sdk>=1.25.0
+opentelemetry-instrumentation-fastapi>=0.46b0
+opentelemetry-instrumentation-httpx>=0.46b0
+opentelemetry-exporter-azuremonitor>=1.0.0b21
 ```
 
 ```python
 # In core/observability.py
-from opencensus.ext.azure.log_exporter import AzureLogHandler
-from opencensus.ext.azure.trace_exporter import AzureExporter
-from opencensus.trace.samplers import ProbabilitySampler
-from opencensus.trace.tracer import Tracer
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.resources import Resource
+from azure.monitor.opentelemetry.exporter import AzureMonitorTraceExporter
 
-def setup_azure_monitoring(connection_string: str):
-    """Configure Application Insights telemetry."""
-    tracer = Tracer(
-        exporter=AzureExporter(connection_string=connection_string),
-        sampler=ProbabilitySampler(rate=1.0),  # 100% in dev, reduce in prod
+def setup_azure_tracing(connection_string: str):
+    """Configure OpenTelemetry with Azure Monitor backend."""
+    resource = Resource.create({
+        "service.name": APP_NAME,
+        "service.version": APP_VERSION,
+        "deployment.environment": APP_ENV,
+    })
+    
+    provider = TracerProvider(resource=resource)
+    exporter = AzureMonitorTraceExporter(
+        connection_string=connection_string,
     )
-
-    logger = logging.getLogger()
-    logger.addHandler(AzureLogHandler(connection_string=connection_string))
+    provider.add_span_processor(BatchSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
 ```
+
+This integrates with the full observability standard in **12-observability.md** — trace-to-log correlation, custom spans, resilience event tracing, and the structlog `add_trace_context` processor all work identically whether the backend is Azure Monitor or self-hosted Tempo/Jaeger. Only the exporter changes.
+
+### Production Debugging with py-spy
+
+Install `py-spy` in all App Service deployments for production debugging. Access via SSH (Kudu console):
+
+```bash
+# SSH into App Service container
+az webapp ssh --resource-group rg-{app-name} --name {app-name}
+
+# Dump thread stacks (diagnose stuck requests)
+py-spy dump --pid $(pgrep -f gunicorn)
+
+# Record flame graph
+py-spy record -o /tmp/profile.svg --pid $(pgrep -f gunicorn) --duration 30
+
+# Inspect async task tree (Python 3.14)
+python -m asyncio pstree $(pgrep -f gunicorn)
+```
+
+Note: `py-spy` requires `SYS_PTRACE` capability. On App Service Linux, this is available via SSH (Kudu). If running in a custom container, add `--cap-add SYS_PTRACE` to the container configuration.
+
+See **12-observability.md** Profiling section for the full diagnostic workflow.
 
 ### Key Metrics to Track
 
@@ -643,6 +696,9 @@ def setup_azure_monitoring(connection_string: str):
 | Database connections | PostgreSQL metrics | > 80% of pool |
 | Redis memory | Redis metrics | > 80% of max |
 | WebSocket connections | Custom metric | > 80% of worker capacity |
+| Circuit breaker state | Custom metric (doc 12) | Any breaker open |
+| Consumer lag | Custom metric (doc 06) | > 100 events (trading), > 1000 (standard) |
+| Thread/process pool utilization | Custom metric (doc 12) | > 90% capacity |
 
 ### Alerting
 
@@ -692,7 +748,7 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  pythonVersion: '3.12'
+  pythonVersion: '3.14'
 
 steps:
   - task: UsePythonVersion@0
@@ -750,7 +806,7 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  pythonVersion: '3.12'
+  pythonVersion: '3.14'
   azureSubscription: '{azure-service-connection}'
   appServiceName: '{app-name}'
   resourceGroup: 'rg-{app-name}-prod'
@@ -827,10 +883,11 @@ stages:
                     slotName: 'staging'
                     resourceGroupName: '$(resourceGroup)'
                     package: '$(Pipeline.Workspace)/app/app.zip'
-                    runtimeStack: 'PYTHON|3.12'
+                    runtimeStack: 'PYTHON|3.14'
                     startUpCommand: >-
                       gunicorn -w 2 -k uvicorn.workers.UvicornWorker
-                      -b 0.0.0.0:8000 modules.backend.main:app
+                      -b 0.0.0.0:8000 --timeout 35 --graceful-timeout 30
+                      modules.backend.main:app
 
   - stage: SmokeTest
     displayName: 'Smoke Test Staging'
@@ -1119,3 +1176,16 @@ For teams migrating an existing bare-metal deployment to Azure:
 | UptimeRobot | Azure Monitor alerts | Built-in health check monitoring |
 | pyenv + venv | App Service Python runtime | Platform manages Python version |
 | Certbot renewal timer | Managed Certificate | Azure handles renewal |
+
+---
+
+## Dependencies on Other Documents
+
+| Document | Relationship |
+|----------|-------------|
+| 03-backend-architecture.md | Python 3.14, uvloop, FastAPI configuration |
+| 12-observability.md | Production observability stack, OTel + Azure Monitor, profiling, health checks |
+| 17-security-standards.md | Network security, Key Vault, managed identity |
+| 19-background-tasks.md | Worker deployment on WebJobs or separate App Service |
+| 21-deployment-bare-metal.md | Alternative deployment target — same application code |
+| 24-concurrency-and-resilience.md | Graceful shutdown, uvloop, file descriptor limits, resilience patterns |

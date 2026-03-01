@@ -6,6 +6,7 @@
 
 ## Changelog
 
+- 2.2.0 (2026-03-01): Added cross-reference to 24-concurrency-and-resilience.md for agent resilience patterns
 - 2.1.0 (2026-02-24): Added channel/session_type/tool_access_level to CoordinatorRequest, added WebSocket entry point example with run_stream(), added gateway-mediated channel adapter note referencing 29-multi-channel-gateway.md
 - 2.0.0 (2026-02-19): Rewrote with PydanticAI-native patterns — coordinator as PydanticAI Agent, agent-as-tool delegation with cost propagation, UsageLimits for budget enforcement, decorator-based middleware, merged entry points/HITL/database models from research docs, removed LangGraph, fixed all hardcoded values and datetime issues
 - 1.1.0 (2026-02-18): Added concept-to-implementation mapping, data model mapping, reconciled SQL schema with AgentTask primitive
@@ -1603,6 +1604,7 @@ No coordinator changes needed. The registry auto-discovers the new agent by scan
 - [08-llm-integration.md](08-llm-integration.md) — LLM provider interface, cost tracking, prompt management
 - [06-event-architecture.md](06-event-architecture.md) — Redis Streams for agent events
 - [19-background-tasks.md](19-background-tasks.md) — Taskiq for scheduled agent work
-- [12-observability.md](12-observability.md) — Logging standards
+- [12-observability.md](12-observability.md) — Three-pillar observability (logs, metrics, traces), resilience event logging, context propagation
+- [24-concurrency-and-resilience.md](24-concurrency-and-resilience.md) — Resilience patterns (circuit breaker, retry, bulkhead) for LLM provider calls and external tool invocations
 - [09-authentication.md](09-authentication.md) — RBAC for agent API access
 - [04-module-structure.md](04-module-structure.md) — Module boundaries and communication

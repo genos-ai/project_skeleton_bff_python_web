@@ -194,21 +194,21 @@ Architecture choices favor technologies with extensive AI training data. This ma
         │                        │
         ▼                        ▼
 ┌─────────────────────┐  ┌─────────────────────┐
-│ 08-llm-integration  │  │ 06-event-arch.md    │
+│ 30-ai-llm-integ.    │  │ 21-opt-event-arch   │
 │    (optional)       │  │    (optional)       │
 └─────────────────────┘  └─────────────────────┘
 
 ┌─────────────────────────────────┐
-│  27-agent-first-infrastructure  │
+│  33-ai-agent-first-infrastructure│
 │  (optional, independent of      │
-│   25/26 — composable with them) │
+│   31/32 — composable with them) │
 └──────────┬──┬──────────────────┘
            │  │
     ┌──────┘  └──────┐
     │                │
     ▼                ▼
 ┌────────────┐  ┌────────────┐
-│ 03-backend │  │ 09-auth.md │
+│ 04-backend │  │ 06-auth.md │
 │  (core)    │  │  (core)    │
 └────────────┘  └────────────┘
 
@@ -222,19 +222,19 @@ Architecture choices favor technologies with extensive AI training data. This ma
     │                │
     ▼                ▼
 ┌────────────┐  ┌──────────────────────┐
-│ 03-backend │  │ 20-telegram-bot.md   │
+│ 04-backend │  │ 24-opt-telegram-bot  │
 │  (core)    │  │  (optional, first    │
 └────────────┘  │   channel adapter)   │
                 └──────────────────────┘
 
 ┌───────────────┐                       ┌───────────────┐
-│ 07-frontend   │                       │ 05-data-layer │
+│ 22-frontend   │                       │ 20-data-layer │
 │  (optional)   │                       │  (optional)   │
 └───────┬───────┘                       └───────────────┘
         │
         ▼
 ┌───────────────────────┐
-│ 11-typescript-stds.md │
+│ 23-opt-typescript-std │
 │      (optional)       │
 └───────────────────────┘
 ```
